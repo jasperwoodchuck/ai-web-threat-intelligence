@@ -3,5 +3,13 @@ name = "backend"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.162.0",
+    "fastapi[standard]>=0.162.0",
+    "tldextract>=5.3",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
