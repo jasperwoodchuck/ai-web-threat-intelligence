@@ -80,12 +80,27 @@ interface TlsAnalysis {
   trust_note: string;
 }
 
+interface ThreatIntelligenceResult {
+  status: "matched" | "no_match" | "unavailable";
+  matched: boolean | null;
+  source: string;
+  indicator: string;
+  match_scope: string | null;
+  threat_type: string | null;
+  confidence: number | null;
+  evidence: Record<string, unknown>;
+  reference: string | null;
+  checked_at: string;
+  error: string | null;
+}
+
 interface UrlAnalysisResponse {
   url_analysis: Record<string, unknown>;
   dns_analysis: DnsAnalysis;
   phishing_analysis: PhishingAnalysis;
   risk_assessment: RiskAssessment;
   tls_analysis: TlsAnalysis;
+  threat_intelligence: ThreatIntelligenceResult;
 }
 
 export default function App() {
@@ -203,6 +218,29 @@ export default function App() {
             )}
             {result.phishing_analysis.fraudurl.error && (
               <p>fraudurl unavailable: {result.phishing_analysis.fraudurl.error}</p>
+            )}
+            <h3>Threat Intelligence</h3>
+            <p>Source: {result.threat_intelligence.source}</p>
+            <p>Match scope: {result.threat_intelligence.match_scope ?? "Unavailable"}</p>
+            <p>
+              Match:{" "}
+              {result.threat_intelligence.status === "matched"
+                ? "Yes"
+                : result.threat_intelligence.status === "no_match"
+                  ? "No"
+                  : "Unavailable"}
+            </p>
+            <p>Threat type: {result.threat_intelligence.threat_type ?? "Unavailable"}</p>
+            <p>
+              Confidence:{" "}
+              {result.threat_intelligence.confidence === null
+                ? "Unavailable"
+                : result.threat_intelligence.confidence}
+            </p>
+            <p>Evidence: {JSON.stringify(result.threat_intelligence.evidence)}</p>
+            <p>Reference: {result.threat_intelligence.reference ?? "Unavailable"}</p>
+            {result.threat_intelligence.error && (
+              <p>Provider status: {result.threat_intelligence.error}</p>
             )}
             <h3>Risk Assessment</h3>
             <p>Classification: {result.risk_assessment.classification}</p>

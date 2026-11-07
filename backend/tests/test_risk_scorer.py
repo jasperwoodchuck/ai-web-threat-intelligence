@@ -10,6 +10,7 @@ from app.models.risk import RiskClassification
 from app.models.tls import TlsAnalysisResult, TlsCertificate, TlsFinding
 from app.models.url import UrlAnalysisResult
 from app.scoring.risk import RiskScorer
+from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
 
 def make_url() -> UrlAnalysisResult:
@@ -164,6 +165,94 @@ def test_score_is_capped_at_documented_maximum() -> None:
 
     assert assessment.score == 100
     assert assessment.score <= 100
+
+
+def test_urlhaus_match_confirms_malicious_and_preserves_source_evidence() -> None:
+    intel = ThreatIntelResult(
+        status=ThreatIntelStatus.MATCHED,
+        matched=True,
+        source="URLhaus",
+        indicator="https://example.com/path",
+        match_scope="url",
+        threat_type="malware_download",
+        confidence=1,
+        evidence={"url_status": "online"},
+        reference="https://urlhaus.abuse.ch/url/123/",
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(), make_dns(), make_phishing(fraud_probability=0.5), threat_intelligence=intel
+    )
+
+    assert assessment.classification is RiskClassification.CONFIRMED_MALICIOUS
+    assert assessment.score == 100
+    assert assessment.contributing_indicators[-1].source == "URLhaus"
+    assert assessment.contributing_indicators[-1].evidence.find("malware_download") >= 0
+
+
+def test_no_urlhaus_match_does_not_mean_low_risk() -> None:
+    intel = ThreatIntelResult(
+        status=ThreatIntelStatus.NO_MATCH,
+        matched=False,
+        source="URLhaus",
+        indicator="https://example.com/",
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(), make_dns(), make_phishing(fraud_probability=0.2), threat_intelligence=intel
+    )
+
+    assert assessment.classification is RiskClassification.INCONCLUSIVE
+    assert assessment.score == 0
+    assert any("does not establish" in text for text in assessment.limitations)
+
+
+def test_unavailable_threat_intelligence_cannot_confirm_malicious() -> None:
+    intel = ThreatIntelResult(
+        status=ThreatIntelStatus.UNAVAILABLE,
+        matched=None,
+        source="URLhaus",
+        indicator="https://example.com/",
+        error="provider timeout",
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(), make_dns(), make_phishing(fraud_probability=0.2), threat_intelligence=intel
+    )
+
+    assert assessment.classification is not RiskClassification.CONFIRMED_MALICIOUS
+    assert any("timeout" in text for text in assessment.limitations)
+
+    no_match = ThreatIntelResult(
+        status=ThreatIntelStatus.NO_MATCH,
+        matched=False,
+        source="URLhaus",
+        indicator="https://example.com/",
+    )
+    checked_assessment = RiskScorer().assess(
+        make_url(), make_dns(), make_phishing(fraud_probability=0.2), threat_intelligence=no_match
+    )
+    assert assessment.confidence < checked_assessment.confidence
+
+
+def test_host_association_is_not_an_exact_url_confirmation() -> None:
+    intel = ThreatIntelResult(
+        status=ThreatIntelStatus.MATCHED,
+        matched=True,
+        source="URLhaus",
+        indicator="example.com",
+        match_scope="host",
+        threat_type="malware_download",
+        confidence=1,
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(), make_dns(), make_phishing(fraud_probability=0.2), threat_intelligence=intel
+    )
+
+    assert assessment.classification is RiskClassification.HIGH_RISK
+    assert assessment.classification is not RiskClassification.CONFIRMED_MALICIOUS
+    assert assessment.contributing_indicators[-1].indicator == "known_malicious_host"
 
 
 def test_valid_tls_does_not_reduce_or_improve_the_risk_score() -> None:

@@ -7,6 +7,7 @@ from app.analyzers.dns import DnsAnalyzer
 from app import main
 from app.models.phishing import FraudUrlSignal, PhishingAnalysisResult
 from app.models.tls import TlsAnalysisResult, TlsCertificate
+from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 from app.main import app
 
 client = TestClient(app)
@@ -61,6 +62,18 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(main, "tls_analyzer", FakeTlsAnalyzer())
+    monkeypatch.setattr(
+        main,
+        "threat_intel_provider",
+        SimpleNamespace(
+            lookup=lambda indicator: ThreatIntelResult(
+                status=ThreatIntelStatus.NO_MATCH,
+                matched=False,
+                source="URLhaus",
+                indicator=indicator,
+            )
+        ),
+    )
     response = client.post(
         "/api/v1/analyze/url", json={"url": "https://example.com/login"}
     )
@@ -73,6 +86,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
         "phishing_analysis",
         "risk_assessment",
         "tls_analysis",
+        "threat_intelligence",
     }
     assert body["url_analysis"]["is_valid"] is True
     assert body["url_analysis"]["normalized_url"] == "https://example.com/login"
@@ -84,6 +98,8 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     assert body["risk_assessment"]["classification"] == "Inconclusive"
     assert body["risk_assessment"]["score"] == 0
     assert body["tls_analysis"]["protocol_version"] == "TLSv1.3"
+    assert body["threat_intelligence"]["status"] == "no_match"
+    assert body["threat_intelligence"]["matched"] is False
 
 
 def test_invalid_url_returns_422() -> None:

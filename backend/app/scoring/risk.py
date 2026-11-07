@@ -6,8 +6,9 @@ probability adds no risk points, and a high probability adds at most 20. DNS rec
 themselves are not suspicious. Resolver failures contribute zero points and lower
 confidence because they leave DNS evidence unavailable. The final score is capped at
 100. Scores 1-14 are Low Risk, 15-34 Suspicious, and 35-100 High Risk. A zero score
-is Inconclusive: it does not establish safety. Confirmed Malicious is reserved for
-trusted external confirmation, which this milestone does not implement.
+is Inconclusive: it does not establish safety. An exact URLhaus URL match is the
+only evidence in this pipeline that can currently produce Confirmed Malicious;
+heuristic and transport signals cannot do so.
 
 TLS findings have fixed weights: hostname mismatch 30, expiration 25, not-yet-valid
 20, chain verification failure 20, weak key/signature or obsolete protocol 18, and
@@ -18,7 +19,8 @@ Confidence is a deterministic evidence-coverage estimate, not a calibrated
 probability. It starts at 0.25, adds 0.08 per positive evidence item (up to 0.4),
 adds 0.15 when fraudurl returns a result, and 0.05 when DNS resolves; unavailable
 fraudurl subtracts 0.1, DNS errors subtract 0.15, and an unavailable supported TLS
-check subtracts 0.1. The final value is clamped to 0.1-0.95.
+check subtracts 0.1. Unavailable threat intelligence subtracts 0.12. The final
+value is clamped to 0.1-0.95.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from app.models.phishing import PhishingAnalysisResult
 from app.models.risk import RiskAssessment, RiskClassification, RiskEvidence
 from app.models.tls import TlsAnalysisResult
 from app.models.url import UrlAnalysisResult
+from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
 _PHISHING_AS_URL_STRUCTURE = {
     "excessive_subdomains",
@@ -59,11 +62,11 @@ class RiskScorer:
         dns_analysis: DnsAnalysisResult,
         phishing_analysis: PhishingAnalysisResult,
         tls_analysis: TlsAnalysisResult | None = None,
+        threat_intelligence: ThreatIntelResult | None = None,
     ) -> RiskAssessment:
         evidence: list[RiskEvidence] = []
         limitations: list[str] = [
             "Automated analysis does not prove that a website is safe or legitimate.",
-            "No threat-intelligence confirmation is included in this assessment.",
         ]
         if phishing_analysis.fraudurl.status != "ok":
             limitations.append("The fraudurl phishing signal was unavailable or skipped.")
@@ -165,17 +168,73 @@ class RiskScorer:
                         "The TLS connection succeeded, but certificate metadata was unavailable."
                     )
 
+        confirmed_match = (
+            threat_intelligence is not None
+            and threat_intelligence.status is ThreatIntelStatus.MATCHED
+            and threat_intelligence.matched is True
+            and threat_intelligence.match_scope == "url"
+        )
+        if (
+            threat_intelligence is not None
+            and threat_intelligence.status is ThreatIntelStatus.MATCHED
+            and threat_intelligence.matched is True
+        ):
+            exact_url_match = threat_intelligence.match_scope == "url"
+            evidence.append(
+                RiskEvidence(
+                    source=threat_intelligence.source,
+                    indicator=(
+                        "known_malicious_url" if exact_url_match else "known_malicious_host"
+                    ),
+                    severity=("critical" if exact_url_match else "high"),
+                    weight=(100 if exact_url_match else 35),
+                    description=(
+                        "The submitted URL has a matching URLhaus malware URL report."
+                        if exact_url_match
+                        else "URLhaus reports a malware URL associated with this hostname; the submitted URL itself did not receive an exact match."
+                    ),
+                    evidence=(
+                        f"threat={threat_intelligence.threat_type or 'unspecified'}; "
+                        f"reference={threat_intelligence.reference or 'unavailable'}; "
+                        f"details={threat_intelligence.evidence}"
+                    ),
+                )
+            )
+        elif (
+            threat_intelligence is None
+            or threat_intelligence.status is not ThreatIntelStatus.NO_MATCH
+        ):
+            limitations.append(
+                "Threat intelligence is unavailable; no provider conclusion can be drawn."
+                if threat_intelligence is None
+                else threat_intelligence.error
+                or "Threat intelligence is unavailable; no provider conclusion can be drawn."
+            )
+        elif threat_intelligence.status is ThreatIntelStatus.NO_MATCH:
+            limitations.append(
+                "URLhaus returned no exact URL match; this does not establish that the URL is safe."
+            )
+
         score = min(100, sum(item.weight for item in evidence))
-        classification = self._classify(score)
+        classification = (
+            RiskClassification.CONFIRMED_MALICIOUS
+            if confirmed_match
+            else self._classify(score)
+        )
         confidence = self._confidence(
             evidence,
             dns_analysis,
             phishing_analysis,
             dns_has_errors,
             tls_analysis,
+            threat_intelligence,
         )
 
-        if classification in {RiskClassification.SUSPICIOUS, RiskClassification.HIGH_RISK}:
+        if classification in {
+            RiskClassification.SUSPICIOUS,
+            RiskClassification.HIGH_RISK,
+            RiskClassification.CONFIRMED_MALICIOUS,
+        }:
             precautions = [
                 "Do not enter credentials or payment details unless you independently verify the site.",
                 "Use a known official website or contact channel instead of following this link.",
@@ -215,6 +274,7 @@ class RiskScorer:
         phishing_analysis: PhishingAnalysisResult,
         dns_has_errors: bool,
         tls_analysis: TlsAnalysisResult | None,
+        threat_intelligence: ThreatIntelResult | None,
     ) -> float:
         positive_count = sum(item.weight > 0 for item in evidence)
         confidence = 0.25 + min(0.4, positive_count * 0.08)
@@ -232,4 +292,9 @@ class RiskScorer:
             and not tls_analysis.connection_successful
         ):
             confidence -= 0.1
+        if (
+            threat_intelligence is None
+            or threat_intelligence.status is ThreatIntelStatus.UNAVAILABLE
+        ):
+            confidence -= 0.12
         return round(min(0.95, max(0.1, confidence)), 2)
