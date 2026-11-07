@@ -35,3 +35,9 @@ no-match result.
 
 For exact URL lookups, the backend removes URL credentials and fragments before sending the URL;
 the path and query remain part of the exact indicator lookup.
+
+## License
+
+This project is dual-licensed under either the MIT License or the Apache License, Version 2.0, at your option.
+
+See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE) for details.
