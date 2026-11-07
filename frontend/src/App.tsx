@@ -1,7 +1,25 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import "./App.css";
 
 type Tone = "neutral" | "good" | "warning" | "danger" | "info";
+type Theme = "light" | "dark";
+
+const THEME_STORAGE_KEY = "web-threat-intelligence-theme";
+
+function getInitialTheme(): Theme {
+  let theme: string | null = null;
+  try {
+    theme = typeof window === "undefined" ? null : window.localStorage.getItem(THEME_STORAGE_KEY);
+  } catch {
+    // Theme selection still works for this session when storage is unavailable.
+  }
+
+  if (theme === "light" || theme === "dark") return theme;
+  return typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
 
 interface UrlAnalysis {
   original_url: string;
@@ -466,6 +484,14 @@ function EvidenceList({ items }: { items: RiskEvidence[] }) {
 }
 
 function App() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    const initialTheme = getInitialTheme();
+    if (typeof document !== "undefined") {
+      document.documentElement.dataset.theme = initialTheme;
+      document.documentElement.style.colorScheme = initialTheme;
+    }
+    return initialTheme;
+  });
   const [url, setUrl] = useState("");
   const [result, setResult] = useState<UrlAnalysisResponse | null>(null);
   const [error, setError] = useState("");
@@ -521,6 +547,20 @@ function App() {
   const positiveSignalCount =
     risk?.contributing_indicators.filter((item) => item.weight > 0).length ?? 0;
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  }, [theme]);
+
+  function selectTheme(nextTheme: Theme) {
+    setTheme(nextTheme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch {
+      // Keep the selected theme for the current session if storage is unavailable.
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -533,9 +573,27 @@ function App() {
           </span>
           <span>Web Threat Intelligence</span>
         </a>
-        <div className="topbar-meta">
-          <span className="live-indicator" />
-          URL investigation
+        <div className="topbar-actions">
+          <div className="topbar-meta">
+            <span className="live-indicator" />
+            URL investigation
+          </div>
+          <div className="theme-toggle" role="group" aria-label="Color theme">
+            <button
+              type="button"
+              aria-pressed={theme === "light"}
+              onClick={() => selectTheme("light")}
+            >
+              Light
+            </button>
+            <button
+              type="button"
+              aria-pressed={theme === "dark"}
+              onClick={() => selectTheme("dark")}
+            >
+              Dark
+            </button>
+          </div>
         </div>
       </header>
 
