@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.analyzers.dns import DnsAnalyzer
 from app import main
 from app.models.phishing import FraudUrlSignal, PhishingAnalysisResult
+from app.models.tls import TlsAnalysisResult, TlsCertificate
 from app.main import app
 
 client = TestClient(app)
@@ -43,6 +44,23 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(main, "phishing_analyzer", FakePhishingAnalyzer())
+
+    class FakeTlsAnalyzer:
+        def analyze(self, url_analysis, dns_analysis):
+            assert url_analysis.hostname == "example.com"
+            assert dns_analysis.hostname == "example.com"
+            return TlsAnalysisResult(
+                status="ok",
+                supported=True,
+                connection_successful=True,
+                hostname="example.com",
+                port=443,
+                protocol_version="TLSv1.3",
+                certificate_verified=True,
+                certificate=TlsCertificate(hostname_matches=True),
+            )
+
+    monkeypatch.setattr(main, "tls_analyzer", FakeTlsAnalyzer())
     response = client.post(
         "/api/v1/analyze/url", json={"url": "https://example.com/login"}
     )
@@ -54,6 +72,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
         "dns_analysis",
         "phishing_analysis",
         "risk_assessment",
+        "tls_analysis",
     }
     assert body["url_analysis"]["is_valid"] is True
     assert body["url_analysis"]["normalized_url"] == "https://example.com/login"
@@ -64,6 +83,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     assert body["phishing_analysis"]["fraudurl"]["result"]["fraud_verdict"] == "LEGITIMATE"
     assert body["risk_assessment"]["classification"] == "Inconclusive"
     assert body["risk_assessment"]["score"] == 0
+    assert body["tls_analysis"]["protocol_version"] == "TLSv1.3"
 
 
 def test_invalid_url_returns_422() -> None:

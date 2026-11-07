@@ -9,11 +9,16 @@ confidence because they leave DNS evidence unavailable. The final score is cappe
 is Inconclusive: it does not establish safety. Confirmed Malicious is reserved for
 trusted external confirmation, which this milestone does not implement.
 
+TLS findings have fixed weights: hostname mismatch 30, expiration 25, not-yet-valid
+20, chain verification failure 20, weak key/signature or obsolete protocol 18, and
+near expiry 5. Other TLS conditions, including a successful/valid certificate, add
+zero points. These weights express transport-security concerns, not malicious intent.
+
 Confidence is a deterministic evidence-coverage estimate, not a calibrated
 probability. It starts at 0.25, adds 0.08 per positive evidence item (up to 0.4),
 adds 0.15 when fraudurl returns a result, and 0.05 when DNS resolves; unavailable
-fraudurl subtracts 0.1 and DNS errors subtract 0.15. The final value is clamped to
-0.1-0.95.
+fraudurl subtracts 0.1, DNS errors subtract 0.15, and an unavailable supported TLS
+check subtracts 0.1. The final value is clamped to 0.1-0.95.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from __future__ import annotations
 from app.models.dns import DnsAnalysisResult
 from app.models.phishing import PhishingAnalysisResult
 from app.models.risk import RiskAssessment, RiskClassification, RiskEvidence
+from app.models.tls import TlsAnalysisResult
 from app.models.url import UrlAnalysisResult
 
 _PHISHING_AS_URL_STRUCTURE = {
@@ -32,6 +38,16 @@ _PHISHING_AS_URL_STRUCTURE = {
     "punycode_hostname",
     "unusual_port",
 }
+_TLS_RISK_WEIGHTS = {
+    "certificate_expired": 25,
+    "certificate_not_yet_valid": 20,
+    "hostname_mismatch": 30,
+    "weak_public_key": 18,
+    "weak_signature_algorithm": 18,
+    "obsolete_tls_version": 18,
+    "certificate_verification_failed": 20,
+    "certificate_expires_soon": 5,
+}
 
 
 class RiskScorer:
@@ -42,6 +58,7 @@ class RiskScorer:
         url_analysis: UrlAnalysisResult,
         dns_analysis: DnsAnalysisResult,
         phishing_analysis: PhishingAnalysisResult,
+        tls_analysis: TlsAnalysisResult | None = None,
     ) -> RiskAssessment:
         evidence: list[RiskEvidence] = []
         limitations: list[str] = [
@@ -114,9 +131,49 @@ class RiskScorer:
             )
             limitations.append("DNS lookups were incomplete, so DNS evidence may be missing.")
 
+        if tls_analysis is not None:
+            for finding in tls_analysis.findings:
+                weight = _TLS_RISK_WEIGHTS.get(finding.type, 0)
+                evidence.append(
+                    RiskEvidence(
+                        source="tls_analysis",
+                        indicator=finding.type,
+                        severity=finding.severity,
+                        weight=weight,
+                        description=finding.description,
+                        evidence=finding.evidence,
+                    )
+                )
+            if tls_analysis.supported:
+                if tls_analysis.certificate_transparency.status != "checked":
+                    limitations.append(
+                        "Certificate Transparency logs were not checked."
+                    )
+                if tls_analysis.certificate_revocation.status != "checked":
+                    limitations.append(
+                        "Certificate revocation and distrust sources were not checked."
+                    )
+                if not tls_analysis.connection_successful:
+                    limitations.append(
+                        "TLS certificate details may be unavailable because the TLS connection did not complete."
+                    )
+                if any(
+                    finding.type == "certificate_data_unavailable"
+                    for finding in tls_analysis.findings
+                ):
+                    limitations.append(
+                        "The TLS connection succeeded, but certificate metadata was unavailable."
+                    )
+
         score = min(100, sum(item.weight for item in evidence))
         classification = self._classify(score)
-        confidence = self._confidence(evidence, dns_analysis, phishing_analysis, dns_has_errors)
+        confidence = self._confidence(
+            evidence,
+            dns_analysis,
+            phishing_analysis,
+            dns_has_errors,
+            tls_analysis,
+        )
 
         if classification in {RiskClassification.SUSPICIOUS, RiskClassification.HIGH_RISK}:
             precautions = [
@@ -157,6 +214,7 @@ class RiskScorer:
         dns_analysis: DnsAnalysisResult,
         phishing_analysis: PhishingAnalysisResult,
         dns_has_errors: bool,
+        tls_analysis: TlsAnalysisResult | None,
     ) -> float:
         positive_count = sum(item.weight > 0 for item in evidence)
         confidence = 0.25 + min(0.4, positive_count * 0.08)
@@ -168,4 +226,10 @@ class RiskScorer:
             confidence += 0.05
         if dns_has_errors:
             confidence -= 0.15
+        if (
+            tls_analysis is not None
+            and tls_analysis.supported
+            and not tls_analysis.connection_successful
+        ):
+            confidence -= 0.1
         return round(min(0.95, max(0.1, confidence)), 2)

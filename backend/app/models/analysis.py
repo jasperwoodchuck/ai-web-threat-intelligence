@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from app.models.dns import DnsAnalysisResult
 from app.models.phishing import PhishingAnalysisResult
 from app.models.risk import RiskAssessment
+from app.models.tls import TlsAnalysisResult
 from app.models.url import UrlAnalysisResult
 
 
@@ -11,3 +12,4 @@ class UrlAnalysisResponse(BaseModel):
     dns_analysis: DnsAnalysisResult
     phishing_analysis: PhishingAnalysisResult
     risk_assessment: RiskAssessment
+    tls_analysis: TlsAnalysisResult

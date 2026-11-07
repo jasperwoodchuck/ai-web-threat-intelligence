@@ -3,6 +3,7 @@ name = "backend"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    "cryptography>=50.0.2",
     "dnspython>=2.9.2",
     "fastapi[standard]>=0.162.0",
     "fraudurl>=1.0.1",

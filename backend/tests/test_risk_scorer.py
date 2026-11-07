@@ -7,6 +7,7 @@ from app.models.phishing import (
     PhishingIndicator,
 )
 from app.models.risk import RiskClassification
+from app.models.tls import TlsAnalysisResult, TlsCertificate, TlsFinding
 from app.models.url import UrlAnalysisResult
 from app.scoring.risk import RiskScorer
 
@@ -163,3 +164,72 @@ def test_score_is_capped_at_documented_maximum() -> None:
 
     assert assessment.score == 100
     assert assessment.score <= 100
+
+
+def test_valid_tls_does_not_reduce_or_improve_the_risk_score() -> None:
+    scorer = RiskScorer()
+    url = make_url()
+    dns = make_dns()
+    phishing = make_phishing([make_indicator("suspicious_keyword", 12)])
+    baseline = scorer.assess(url, dns, phishing)
+    valid_tls = TlsAnalysisResult(
+        status="ok",
+        supported=True,
+        connection_successful=True,
+        hostname="example.com",
+        port=443,
+        protocol_version="TLSv1.3",
+        certificate_verified=True,
+        certificate=TlsCertificate(hostname_matches=True),
+        certificate_chain=[],
+        findings=[],
+    )
+
+    with_tls = scorer.assess(url, dns, phishing, valid_tls)
+
+    assert with_tls.score == baseline.score
+    assert with_tls.classification is baseline.classification
+
+
+def test_expired_tls_certificate_adds_security_evidence() -> None:
+    tls = TlsAnalysisResult(
+        status="error",
+        supported=True,
+        connection_successful=False,
+        hostname="example.com",
+        port=443,
+        findings=[
+            TlsFinding(
+                type="certificate_expired",
+                severity="high",
+                description="The certificate has expired.",
+                evidence="not_after was in the past",
+            )
+        ],
+    )
+
+    assessment = RiskScorer().assess(make_url(), make_dns(), make_phishing(fraud_probability=None), tls)
+
+    assert assessment.score == 25
+    assert assessment.classification is RiskClassification.SUSPICIOUS
+    assert assessment.contributing_indicators[-1].source == "tls_analysis"
+
+
+def test_failed_supported_tls_check_reduces_confidence_not_safety_score() -> None:
+    scorer = RiskScorer()
+    url = make_url()
+    dns = make_dns()
+    phishing = make_phishing(fraud_probability=0.5)
+    baseline = scorer.assess(url, dns, phishing)
+    tls_failure = TlsAnalysisResult(
+        status="error",
+        supported=True,
+        connection_successful=False,
+        hostname="example.com",
+        port=443,
+    )
+
+    with_tls_failure = scorer.assess(url, dns, phishing, tls_failure)
+
+    assert with_tls_failure.score == baseline.score
+    assert with_tls_failure.confidence == baseline.confidence - 0.1

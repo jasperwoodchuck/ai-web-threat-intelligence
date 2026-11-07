@@ -52,11 +52,40 @@ interface RiskAssessment {
   limitations: string[];
 }
 
+interface TlsAnalysis {
+  status: string;
+  supported: boolean;
+  connection_successful: boolean;
+  hostname: string | null;
+  port: number | null;
+  protocol_version: string | null;
+  certificate_verified: boolean | null;
+  certificate: {
+    subject: string | null;
+    issuer: string | null;
+    serial_number: string | null;
+    not_before: string | null;
+    not_after: string | null;
+    is_expired: boolean | null;
+    san_names: string[];
+    hostname_matches: boolean | null;
+    public_key_algorithm: string | null;
+    public_key_size: number | null;
+    signature_algorithm: string | null;
+  } | null;
+  certificate_chain: { subject: string; issuer: string; serial_number: string }[];
+  certificate_transparency: { status: string; reason: string };
+  certificate_revocation: { status: string; reason: string };
+  findings: { type: string; severity: string; description: string; evidence: string }[];
+  trust_note: string;
+}
+
 interface UrlAnalysisResponse {
   url_analysis: Record<string, unknown>;
   dns_analysis: DnsAnalysis;
   phishing_analysis: PhishingAnalysis;
   risk_assessment: RiskAssessment;
+  tls_analysis: TlsAnalysis;
 }
 
 export default function App() {
@@ -204,6 +233,84 @@ export default function App() {
                 <li key={item}>{item}</li>
               ))}
             </ul>
+            <h3>TLS / Certificate Analysis</h3>
+            {result.tls_analysis.status === "not_applicable" ? (
+              <p>TLS analysis not applicable — URL uses HTTP.</p>
+            ) : (
+              <>
+                <p>TLS supported: {result.tls_analysis.supported ? "Yes" : "No"}</p>
+                <p>
+                  Connection: {result.tls_analysis.connection_successful ? "Successful" : "Failed"}
+                </p>
+                <p>Protocol: {result.tls_analysis.protocol_version ?? "Unavailable"}</p>
+                <p>
+                  Certificate chain verified:{" "}
+                  {result.tls_analysis.certificate_verified === null
+                    ? "Unknown"
+                    : result.tls_analysis.certificate_verified
+                      ? "Yes"
+                      : "No"}
+                </p>
+                <p>
+                  Certificate subject: {result.tls_analysis.certificate?.subject ?? "Unavailable"}
+                </p>
+                <p>
+                  Certificate issuer: {result.tls_analysis.certificate?.issuer ?? "Unavailable"}
+                </p>
+                <p>Valid from: {result.tls_analysis.certificate?.not_before ?? "Unavailable"}</p>
+                <p>Valid until: {result.tls_analysis.certificate?.not_after ?? "Unavailable"}</p>
+                <p>
+                  Expired:{" "}
+                  {result.tls_analysis.certificate?.is_expired === null ||
+                  result.tls_analysis.certificate === null
+                    ? "Unknown"
+                    : result.tls_analysis.certificate.is_expired
+                      ? "Yes"
+                      : "No"}
+                </p>
+                <p>
+                  SAN names:{" "}
+                  {result.tls_analysis.certificate?.san_names.join(", ") ?? "Unavailable"}
+                </p>
+                <p>
+                  Hostname matches:{" "}
+                  {result.tls_analysis.certificate?.hostname_matches === null ||
+                  result.tls_analysis.certificate === null
+                    ? "Unknown"
+                    : result.tls_analysis.certificate.hostname_matches
+                      ? "Yes"
+                      : "No"}
+                </p>
+                <p>
+                  Public key:{" "}
+                  {result.tls_analysis.certificate?.public_key_algorithm ?? "Unavailable"}
+                  {result.tls_analysis.certificate?.public_key_size
+                    ? ` (${result.tls_analysis.certificate.public_key_size} bits)`
+                    : ""}
+                </p>
+                <p>
+                  Signature algorithm:{" "}
+                  {result.tls_analysis.certificate?.signature_algorithm ?? "Unavailable"}
+                </p>
+                <p>
+                  Certificate Transparency: {result.tls_analysis.certificate_transparency.status}
+                </p>
+                <p>Certificate revocation: {result.tls_analysis.certificate_revocation.status}</p>
+                <p>{result.tls_analysis.trust_note}</p>
+                <h4>Findings:</h4>
+                {result.tls_analysis.findings.length === 0 ? (
+                  <p>None</p>
+                ) : (
+                  <ul>
+                    {result.tls_analysis.findings.map((finding, index) => (
+                      <li key={`${finding.type}-${index}`}>
+                        {finding.description} Evidence: {finding.evidence}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </>
         )}
       </section>

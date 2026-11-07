@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 
 from app.analyzers.dns import DnsAnalyzer
 from app.analyzers.phishing import PhishingAnalyzer
+from app.analyzers.tls import TlsAnalyzer
 from app.analyzers.url import UrlAnalyzer
 from app.models.analysis import UrlAnalysisResponse
 from app.models.url import UrlAnalysisRequest
@@ -11,6 +12,7 @@ app = FastAPI(title="Web Threat Intelligence API")
 url_analyzer = UrlAnalyzer()
 dns_analyzer = DnsAnalyzer()
 phishing_analyzer = PhishingAnalyzer()
+tls_analyzer = TlsAnalyzer()
 risk_scorer = RiskScorer()
 
 
@@ -29,14 +31,17 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse:
 
     dns_analysis = dns_analyzer.analyze(url_analysis.hostname)
     phishing_analysis = phishing_analyzer.analyze(url_analysis)
+    tls_analysis = tls_analyzer.analyze(url_analysis, dns_analysis)
     risk_assessment = risk_scorer.assess(
         url_analysis,
         dns_analysis,
         phishing_analysis,
+        tls_analysis,
     )
     return UrlAnalysisResponse(
         url_analysis=url_analysis,
         dns_analysis=dns_analysis,
         phishing_analysis=phishing_analysis,
         risk_assessment=risk_assessment,
+        tls_analysis=tls_analysis,
     )
