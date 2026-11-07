@@ -3,8 +3,11 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.analyzers.dns import DnsAnalyzer
 from app import main
+from app.analyzers.dns import DnsAnalyzer
+from app.analyzers.phishing import PhishingAnalyzer
+from app.models.dns import DnsAnalysisResult
+from app.models.http import HttpAnalysisResult
 from app.models.phishing import FraudUrlSignal, PhishingAnalysisResult
 from app.models.tls import TlsAnalysisResult, TlsCertificate
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
@@ -62,6 +65,23 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(main, "tls_analyzer", FakeTlsAnalyzer())
+
+    class FakeHttpAnalyzer:
+        def analyze(self, url_analysis, dns_analysis):
+            assert url_analysis.hostname == "example.com"
+            assert dns_analysis.hostname == "example.com"
+            return HttpAnalysisResult(
+                status="ok",
+                supported=True,
+                request_successful=True,
+                scheme="https",
+                hostname="example.com",
+                port=443,
+                status_code=200,
+                final_behavior="response_received",
+            )
+
+    monkeypatch.setattr(main, "http_analyzer", FakeHttpAnalyzer())
     monkeypatch.setattr(
         main,
         "threat_intel_provider",
@@ -84,8 +104,10 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
         "url_analysis",
         "dns_analysis",
         "phishing_analysis",
+        "typosquatting",
         "risk_assessment",
         "tls_analysis",
+        "http_analysis",
         "threat_intelligence",
     }
     assert body["url_analysis"]["is_valid"] is True
@@ -95,9 +117,11 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     assert body["dns_analysis"]["ipv4_addresses"] == ["192.0.2.20"]
     assert body["phishing_analysis"]["is_suspicious"] is False
     assert body["phishing_analysis"]["fraudurl"]["result"]["fraud_verdict"] == "LEGITIMATE"
+    assert body["typosquatting"]["detected"] is False
     assert body["risk_assessment"]["classification"] == "Inconclusive"
     assert body["risk_assessment"]["score"] == 0
     assert body["tls_analysis"]["protocol_version"] == "TLSv1.3"
+    assert body["http_analysis"]["status_code"] == 200
     assert body["threat_intelligence"]["status"] == "no_match"
     assert body["threat_intelligence"]["matched"] is False
 
@@ -118,3 +142,89 @@ def test_unsupported_scheme_returns_422() -> None:
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Only HTTP and HTTPS URLs are supported."
+
+
+def test_yovtube_reaches_phishing_and_risk_analysis_through_api(monkeypatch) -> None:
+    class FakeFraudUrl:
+        def analyze(self, url: str) -> FraudUrlSignal:
+            assert url == "https://yovtube.com/"
+            return FraudUrlSignal(status="error", error="mocked unavailable")
+
+    class FakeDnsAnalyzer:
+        def analyze(self, hostname: str):
+            return DnsAnalysisResult(
+                hostname=hostname,
+                status="ok",
+                resolution_succeeded=True,
+            )
+
+    class FakeTlsAnalyzer:
+        def analyze(self, url_analysis, dns_analysis):
+            return TlsAnalysisResult(
+                status="not_applicable",
+                supported=False,
+                connection_successful=False,
+                hostname=url_analysis.hostname,
+                port=443,
+            )
+
+    class FakeHttpAnalyzer:
+        def analyze(self, url_analysis, dns_analysis):
+            return HttpAnalysisResult(
+                status="error",
+                supported=True,
+                request_successful=False,
+                scheme="https",
+                hostname=url_analysis.hostname,
+                port=443,
+                error="mocked unavailable",
+            )
+
+    monkeypatch.setattr(main, "dns_analyzer", FakeDnsAnalyzer())
+    monkeypatch.setattr(
+        main, "phishing_analyzer", PhishingAnalyzer(fraudurl_analyzer=FakeFraudUrl())
+    )
+    monkeypatch.setattr(main, "tls_analyzer", FakeTlsAnalyzer())
+    monkeypatch.setattr(main, "http_analyzer", FakeHttpAnalyzer())
+    monkeypatch.setattr(
+        main,
+        "threat_intel_provider",
+        SimpleNamespace(
+            lookup=lambda indicator: ThreatIntelResult(
+                status=ThreatIntelStatus.UNAVAILABLE,
+                matched=None,
+                source="URLhaus",
+                indicator=indicator,
+                error="mocked unavailable",
+            )
+        ),
+    )
+
+    response = client.post("/api/v1/analyze/url", json={"url": "https://yovtube.com"})
+
+    assert response.status_code == 200
+    body = response.json()
+    indicator = next(
+        item
+        for item in body["phishing_analysis"]["indicators"]
+        if item["type"] == "typosquatting_domain"
+    )
+    risk_signal = next(
+        item
+        for item in body["risk_assessment"]["contributing_indicators"]
+        if item["indicator"] == "typosquatting_domain"
+    )
+    assert "youtube.com" in indicator["description"]
+    assert "possible_intended_site=youtube.com" in indicator["evidence"]
+    assert body["typosquatting"] == {
+        "detected": True,
+        "submitted_domain": "yovtube.com",
+        "possible_intended_site": "youtube.com",
+        "similarity": 0.86,
+        "edit_distance": 1,
+    }
+    assert risk_signal["weight"] == 30
+    assert risk_signal["description"] == (
+        "Domain yovtube.com closely resembles youtube.com, which is a likely typosquatting attempt."
+    )
+    assert body["risk_assessment"]["score"] == 30

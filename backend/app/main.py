@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 
 from app.analyzers.dns import DnsAnalyzer
+from app.analyzers.http import HttpAnalyzer
 from app.analyzers.phishing import PhishingAnalyzer
 from app.analyzers.tls import TlsAnalyzer
 from app.analyzers.url import UrlAnalyzer
@@ -17,6 +18,7 @@ url_analyzer = UrlAnalyzer()
 dns_analyzer = DnsAnalyzer()
 phishing_analyzer = PhishingAnalyzer()
 tls_analyzer = TlsAnalyzer()
+http_analyzer = HttpAnalyzer()
 risk_scorer = RiskScorer()
 threat_intel_provider = UrlhausProvider()
 
@@ -37,6 +39,7 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse:
     dns_analysis = dns_analyzer.analyze(url_analysis.hostname)
     phishing_analysis = phishing_analyzer.analyze(url_analysis)
     tls_analysis = tls_analyzer.analyze(url_analysis, dns_analysis)
+    http_analysis = http_analyzer.analyze(url_analysis, dns_analysis)
     threat_intelligence = threat_intel_provider.lookup(
         url_analysis.normalized_url or request.url
     )
@@ -46,12 +49,15 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse:
         phishing_analysis,
         tls_analysis,
         threat_intelligence,
+        http_analysis=http_analysis,
     )
     return UrlAnalysisResponse(
         url_analysis=url_analysis,
         dns_analysis=dns_analysis,
         phishing_analysis=phishing_analysis,
+        typosquatting=phishing_analysis.typosquatting,
         risk_assessment=risk_assessment,
         tls_analysis=tls_analysis,
+        http_analysis=http_analysis,
         threat_intelligence=threat_intelligence,
     )

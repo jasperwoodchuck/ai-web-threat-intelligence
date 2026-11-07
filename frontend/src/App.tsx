@@ -34,6 +34,14 @@ interface PhishingAnalysis {
   };
 }
 
+interface TyposquattingAnalysis {
+  detected: boolean;
+  submitted_domain: string | null;
+  possible_intended_site: string | null;
+  similarity: number | null;
+  edit_distance: number | null;
+}
+
 interface RiskEvidence {
   source: string;
   indicator: string;
@@ -80,6 +88,34 @@ interface TlsAnalysis {
   trust_note: string;
 }
 
+interface HttpFinding {
+  type: string;
+  severity: string;
+  description: string;
+  evidence: string;
+  score_contribution: number;
+}
+
+interface HttpAnalysis {
+  status: string;
+  supported: boolean;
+  request_successful: boolean;
+  scheme: string | null;
+  hostname: string | null;
+  port: number | null;
+  request_method: string;
+  status_code: number | null;
+  security_headers: Record<string, string | null>;
+  headers_size_bytes: number | null;
+  redirect_detected: boolean;
+  redirect_status_code: number | null;
+  redirect_location: string | null;
+  final_behavior: string;
+  error: string | null;
+  findings: HttpFinding[];
+  trust_note: string;
+}
+
 interface ThreatIntelligenceResult {
   status: "matched" | "no_match" | "unavailable";
   matched: boolean | null;
@@ -98,8 +134,10 @@ interface UrlAnalysisResponse {
   url_analysis: Record<string, unknown>;
   dns_analysis: DnsAnalysis;
   phishing_analysis: PhishingAnalysis;
+  typosquatting: TyposquattingAnalysis;
   risk_assessment: RiskAssessment;
   tls_analysis: TlsAnalysis;
+  http_analysis: HttpAnalysis;
   threat_intelligence: ThreatIntelligenceResult;
 }
 
@@ -173,6 +211,29 @@ export default function App() {
           <>
             <h3>URL Analysis</h3>
             <pre>{JSON.stringify(result.url_analysis, null, 2)}</pre>
+            <h3>Typosquatting Check</h3>
+            {result.typosquatting.detected &&
+            result.typosquatting.submitted_domain &&
+            result.typosquatting.possible_intended_site ? (
+              <>
+                <p>
+                  <strong>Possible typo detected</strong>
+                </p>
+                <p>
+                  <strong>{result.typosquatting.submitted_domain}</strong> looks very similar to{" "}
+                  <mark>{result.typosquatting.possible_intended_site}</mark>.
+                </p>
+                <p>
+                  Did you mean <mark>{result.typosquatting.possible_intended_site}</mark>?
+                </p>
+                <p>
+                  Similarity: {result.typosquatting.similarity?.toFixed(2) ?? "Unavailable"}; edit
+                  distance: {result.typosquatting.edit_distance ?? "Unavailable"}
+                </p>
+              </>
+            ) : (
+              <p>No likely typosquatting match detected.</p>
+            )}
             <h3>DNS Analysis</h3>
             <p>Status: {result.dns_analysis.status}</p>
             <p>A Records: {result.dns_analysis.ipv4_addresses.join(", ") || "None"}</p>
@@ -246,6 +307,10 @@ export default function App() {
             <p>Classification: {result.risk_assessment.classification}</p>
             <p>Score: {result.risk_assessment.score}</p>
             <p>Confidence: {result.risk_assessment.confidence.toFixed(2)}</p>
+            <p>
+              Signal impact is the signed change to the score: positive increases risk, negative is
+              limited counterevidence.
+            </p>
             <h4>Why:</h4>
             {result.risk_assessment.contributing_indicators.length === 0 ? (
               <p>No contributing indicators. The result is inconclusive.</p>
@@ -253,7 +318,7 @@ export default function App() {
               <ul>
                 {result.risk_assessment.contributing_indicators.map((item, index) => (
                   <li key={`${item.source}-${item.indicator}-${index}`}>
-                    {item.description} Evidence: {item.evidence} (source: {item.source}; weight:{" "}
+                    {item.description} Evidence: {item.evidence} (source: {item.source}; impact:{" "}
                     {item.weight})
                   </li>
                 ))}
@@ -349,6 +414,49 @@ export default function App() {
                 )}
               </>
             )}
+            <h3>HTTP Response Analysis</h3>
+            <p>Status: {result.http_analysis.status}</p>
+            <p>
+              Request: {result.http_analysis.request_method} — {result.http_analysis.scheme}://
+              {result.http_analysis.hostname}
+              {result.http_analysis.port ? `:${result.http_analysis.port}` : ""}
+            </p>
+            <p>HTTP status code: {result.http_analysis.status_code ?? "Unavailable"}</p>
+            <p>Final behavior: {result.http_analysis.final_behavior}</p>
+            <p>
+              Redirect: {result.http_analysis.redirect_detected ? "Yes" : "No"}
+              {result.http_analysis.redirect_status_code
+                ? ` (HTTP ${result.http_analysis.redirect_status_code})`
+                : ""}
+            </p>
+            {result.http_analysis.redirect_location && (
+              <p>Redirect target (not followed): {result.http_analysis.redirect_location}</p>
+            )}
+            {result.http_analysis.error && (
+              <p>HTTP analysis detail: {result.http_analysis.error}</p>
+            )}
+            <h4>Security headers</h4>
+            <ul>
+              {Object.entries(result.http_analysis.security_headers).map(([name, value]) => (
+                <li key={name}>
+                  {name}: {value ?? "Missing"}
+                </li>
+              ))}
+            </ul>
+            <h4>HTTP findings</h4>
+            {result.http_analysis.findings.length === 0 ? (
+              <p>None</p>
+            ) : (
+              <ul>
+                {result.http_analysis.findings.map((finding) => (
+                  <li key={finding.type}>
+                    {finding.description} Evidence: {finding.evidence} (severity: {finding.severity}
+                    )
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p>{result.http_analysis.trust_note}</p>
           </>
         )}
       </section>

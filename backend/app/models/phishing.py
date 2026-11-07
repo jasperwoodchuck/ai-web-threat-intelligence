@@ -16,8 +16,17 @@ class FraudUrlSignal(BaseModel):
     error: str | None = None
 
 
+class TyposquattingAnalysis(BaseModel):
+    detected: bool = False
+    submitted_domain: str | None = None
+    possible_intended_site: str | None = None
+    similarity: float | None = Field(default=None, ge=0, le=1)
+    edit_distance: int | None = Field(default=None, ge=0)
+
+
 class PhishingAnalysisResult(BaseModel):
     is_suspicious: bool
     score: int = Field(ge=0, le=100)
     indicators: list[PhishingIndicator] = Field(default_factory=list)
     fraudurl: FraudUrlSignal
+    typosquatting: TyposquattingAnalysis = Field(default_factory=TyposquattingAnalysis)

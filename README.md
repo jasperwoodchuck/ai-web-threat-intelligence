@@ -6,6 +6,20 @@ URLs; its coverage is not exhaustive and does not represent a general safety ver
 match does not mean a URL is safe. A hostname association is distinguished from an exact URL
 match; only an exact URL match can currently produce the `Confirmed Malicious` classification.
 
+Risk scoring combines independent evidence groups with a bounded noisy-OR calculation.
+For each signal strength `s` (0-100), the cumulative score becomes
+`100 - (100 - current_score) * (1 - s / 100)`. Correlated signals in the same family
+use diminishing factors (1, 0.35, 0.15, then 0.05) before combination. fraudurl
+probability contributes proportionally above 0.5; values below 0.5 can reduce the score
+by at most 10 points as limited counterevidence. An exact URLhaus match contributes a
+base strength of 80 multiplied by provider confidence; a hostname association uses 50.
+Only an exact URL match with a combined score of at least 70 is `Confirmed Malicious`.
+Existing score bands remain: 1-14 Low Risk, 15-34 Suspicious, and 35+ High Risk; zero
+is Inconclusive. `RiskEvidence.weight` is the signed marginal change to the final score,
+so the evidence weights sum to that score. Analyzer errors, timeouts, and not-applicable
+checks do not add risk points. Confidence measures analysis coverage and consistency,
+not risk or probability of fraud.
+
 Create an abuse.ch account for an API key, then configure the backend:
 
 ```bash

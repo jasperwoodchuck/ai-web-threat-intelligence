@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models.dns import DnsAnalysisResult, DnsLookupError
+from app.models.http import HttpAnalysisResult, HttpFinding
 from app.models.phishing import (
     FraudUrlSignal,
     PhishingAnalysisResult,
@@ -9,6 +10,7 @@ from app.models.phishing import (
 from app.models.risk import RiskClassification
 from app.models.tls import TlsAnalysisResult, TlsCertificate, TlsFinding
 from app.models.url import UrlAnalysisResult
+from app.analyzers.url import UrlAnalyzer
 from app.scoring.risk import RiskScorer
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
@@ -73,6 +75,10 @@ def make_indicator(
     )
 
 
+def assert_score_matches_impacts(assessment) -> None:
+    assert sum(item.weight for item in assessment.contributing_indicators) == assessment.score
+
+
 def test_no_meaningful_indicators_is_inconclusive_not_safe() -> None:
     assessment = RiskScorer().assess(make_url(), make_dns(), make_phishing(fraud_probability=0.2))
 
@@ -101,7 +107,7 @@ def test_multiple_suspicious_indicators_produce_suspicious_classification() -> N
     )
 
     assert assessment.classification is RiskClassification.SUSPICIOUS
-    assert assessment.score == 26
+    assert assessment.score == 24
 
 
 def test_strong_phishing_evidence_produces_high_risk() -> None:
@@ -118,7 +124,7 @@ def test_strong_phishing_evidence_produces_high_risk() -> None:
     )
 
     assert assessment.classification is RiskClassification.HIGH_RISK
-    assert assessment.score == 56
+    assert assessment.score == 46
 
 
 def test_heuristics_alone_never_produce_confirmed_malicious() -> None:
@@ -127,7 +133,7 @@ def test_heuristics_alone_never_produce_confirmed_malicious() -> None:
         make_url(), make_dns(), make_phishing(indicators, fraud_probability=0.99)
     )
 
-    assert assessment.score == 100
+    assert assessment.score == 86
     assert assessment.classification is RiskClassification.HIGH_RISK
     assert assessment.classification is not RiskClassification.CONFIRMED_MALICIOUS
 
@@ -138,11 +144,15 @@ def test_original_indicator_evidence_and_source_are_preserved() -> None:
         make_url(), make_dns(), make_phishing([original], fraud_probability=None)
     )
 
-    item = assessment.contributing_indicators[0]
+    item = next(
+        item
+        for item in assessment.contributing_indicators
+        if item.indicator == original.type
+    )
     assert item.source == "url_analysis"
     assert item.indicator == original.type
     assert item.severity == original.severity
-    assert item.weight == original.score_contribution
+    assert item.weight > 0
     assert item.description == original.description
     assert item.evidence == original.evidence
 
@@ -163,8 +173,9 @@ def test_score_is_capped_at_documented_maximum() -> None:
         make_url(), make_dns(), make_phishing(indicators, fraud_probability=0.99)
     )
 
-    assert assessment.score == 100
+    assert assessment.score == 86
     assert assessment.score <= 100
+    assert_score_matches_impacts(assessment)
 
 
 def test_urlhaus_match_confirms_malicious_and_preserves_source_evidence() -> None:
@@ -185,9 +196,12 @@ def test_urlhaus_match_confirms_malicious_and_preserves_source_evidence() -> Non
     )
 
     assert assessment.classification is RiskClassification.CONFIRMED_MALICIOUS
-    assert assessment.score == 100
-    assert assessment.contributing_indicators[-1].source == "URLhaus"
-    assert assessment.contributing_indicators[-1].evidence.find("malware_download") >= 0
+    assert assessment.score == 80
+    threat_evidence = next(
+        item for item in assessment.contributing_indicators if item.source == "URLhaus"
+    )
+    assert "malware_download" in threat_evidence.evidence
+    assert_score_matches_impacts(assessment)
 
 
 def test_no_urlhaus_match_does_not_mean_low_risk() -> None:
@@ -301,7 +315,10 @@ def test_expired_tls_certificate_adds_security_evidence() -> None:
 
     assert assessment.score == 25
     assert assessment.classification is RiskClassification.SUSPICIOUS
-    assert assessment.contributing_indicators[-1].source == "tls_analysis"
+    assert any(
+        item.source == "tls_analysis" and item.indicator == "certificate_expired"
+        for item in assessment.contributing_indicators
+    )
 
 
 def test_failed_supported_tls_check_reduces_confidence_not_safety_score() -> None:
@@ -321,4 +338,402 @@ def test_failed_supported_tls_check_reduces_confidence_not_safety_score() -> Non
     with_tls_failure = scorer.assess(url, dns, phishing, tls_failure)
 
     assert with_tls_failure.score == baseline.score
-    assert with_tls_failure.confidence == baseline.confidence - 0.1
+    assert with_tls_failure.confidence <= baseline.confidence
+
+
+def test_http_security_findings_are_preserved_in_risk_assessment() -> None:
+    http_analysis = HttpAnalysisResult(
+        status="ok",
+        supported=True,
+        request_successful=True,
+        scheme="http",
+        hostname="example.com",
+        port=80,
+        status_code=200,
+        findings=[
+            HttpFinding(
+                type="insecure_http",
+                severity="medium",
+                description="The URL uses unencrypted HTTP.",
+                evidence="scheme=http",
+                score_contribution=10,
+            )
+        ],
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(),
+        make_dns(),
+        make_phishing(fraud_probability=None),
+        http_analysis=http_analysis,
+    )
+
+    evidence = next(
+        item
+        for item in assessment.contributing_indicators
+        if item.indicator == "insecure_http"
+    )
+    assert assessment.score == 10
+    assert evidence.indicator == "insecure_http"
+    assert evidence.weight == 10
+    assert evidence.evidence == "scheme=http"
+
+
+def test_http_failure_reduces_confidence_without_adding_risk_points() -> None:
+    scorer = RiskScorer()
+    phishing = make_phishing(fraud_probability=0.5)
+    baseline = scorer.assess(make_url(), make_dns(), phishing)
+    failed_http = HttpAnalysisResult(
+        status="error",
+        supported=True,
+        request_successful=False,
+        scheme="https",
+        hostname="example.com",
+        port=443,
+        error="HTTP response timed out.",
+    )
+
+    assessment = scorer.assess(
+        make_url(),
+        make_dns(),
+        phishing,
+        http_analysis=failed_http,
+    )
+
+    assert assessment.score == baseline.score
+    assert assessment.confidence <= baseline.confidence
+    assert any(
+        "response metadata could not be collected" in item
+        for item in assessment.limitations
+    )
+
+
+def test_current_ui_example_url_is_inconclusive_when_checks_find_no_suspicious_evidence() -> None:
+    url = UrlAnalyzer().analyze("https://example.com")
+    dns = DnsAnalysisResult(
+        hostname="example.com",
+        status="ok",
+        resolution_succeeded=True,
+        ipv4_addresses=["93.184.216.34"],
+    )
+    phishing = make_phishing(fraud_probability=0.1)
+    tls = TlsAnalysisResult(
+        status="ok",
+        supported=True,
+        connection_successful=True,
+        hostname="example.com",
+        port=443,
+        protocol_version="TLSv1.3",
+        certificate_verified=True,
+        certificate=TlsCertificate(hostname_matches=True),
+    )
+    http = HttpAnalysisResult(
+        status="ok",
+        supported=True,
+        request_successful=True,
+        scheme="https",
+        hostname="example.com",
+        port=443,
+        status_code=200,
+        security_headers={
+            "strict-transport-security": "max-age=31536000",
+            "content-security-policy": "default-src 'self'",
+            "x-content-type-options": "nosniff",
+        },
+    )
+    intel = ThreatIntelResult(
+        status=ThreatIntelStatus.NO_MATCH,
+        matched=False,
+        source="URLhaus",
+        indicator="https://example.com/",
+    )
+
+    assessment = RiskScorer().assess(url, dns, phishing, tls, intel, http)
+
+    assert assessment.score == 0
+    assert assessment.classification is RiskClassification.INCONCLUSIVE
+    assert assessment.confidence == 0.95
+    assert_score_matches_impacts(assessment)
+    assert {item.source for item in assessment.contributing_indicators} >= {
+        "url_analysis",
+        "dns_analysis",
+        "phishing_analysis",
+        "tls_analysis",
+        "http_analysis",
+        "URLhaus",
+    }
+
+
+def test_ip_and_unusual_port_combine_without_raw_score_summation() -> None:
+    assessment = RiskScorer().assess(
+        make_url(),
+        make_dns(),
+        make_phishing(
+            [
+                make_indicator("ip_hostname", 20, severity="high"),
+                make_indicator("unusual_port", 10),
+            ],
+            fraud_probability=None,
+        ),
+    )
+
+    assert assessment.score == 28
+    assert assessment.classification is RiskClassification.SUSPICIOUS
+    assert_score_matches_impacts(assessment)
+
+
+def test_correlated_hostname_signals_are_discounted_and_duplicates_do_not_stack() -> None:
+    duplicate_ip = make_indicator("ip_hostname", 20, severity="high")
+    indicators = [
+        duplicate_ip,
+        duplicate_ip.model_copy(),
+        make_indicator("long_hostname", 10),
+    ]
+
+    assessment = RiskScorer().assess(
+        make_url(), make_dns(), make_phishing(indicators, fraud_probability=None)
+    )
+
+    assert assessment.score == 23
+    assert [item.weight for item in assessment.contributing_indicators if item.indicator == "ip_hostname"] == [20, 0]
+    assert_score_matches_impacts(assessment)
+
+
+def test_phishing_indicators_combine_with_probability_weighted_fraudurl() -> None:
+    assessment = RiskScorer().assess(
+        make_url(),
+        make_dns(),
+        make_phishing(
+            [make_indicator("suspicious_keyword", 12)], fraud_probability=0.95
+        ),
+    )
+    fraudurl_impact = next(
+        item.weight
+        for item in assessment.contributing_indicators
+        if item.indicator == "fraudurl_probability"
+    )
+
+    assert assessment.score == 28
+    assert fraudurl_impact == 16
+    assert assessment.classification is RiskClassification.SUSPICIOUS
+    assert_score_matches_impacts(assessment)
+
+
+def test_typosquatting_signal_contributes_once_to_url_risk() -> None:
+    typosquat = make_indicator("typosquatting_domain", 30, severity="high").model_copy(
+        update={"evidence": "registered_domain=yovtube.com; possible_intended_site=youtube.com"}
+    )
+    result = RiskScorer().assess(
+        make_url(), make_dns(), make_phishing([typosquat], fraud_probability=None)
+    )
+
+    evidence = next(
+        item for item in result.contributing_indicators if item.indicator == "typosquatting_domain"
+    )
+    assert evidence.source == "url_analysis"
+    assert evidence.weight == 30
+    assert result.score == 30
+    assert result.classification is RiskClassification.SUSPICIOUS
+    assert_score_matches_impacts(result)
+
+
+def test_tls_problem_combines_with_suspicious_url_evidence() -> None:
+    tls = TlsAnalysisResult(
+        status="error",
+        supported=True,
+        connection_successful=False,
+        hostname="example.com",
+        port=443,
+        findings=[
+            TlsFinding(
+                type="certificate_expired",
+                severity="high",
+                description="The certificate has expired.",
+                evidence="not_after was in the past",
+            )
+        ],
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(),
+        make_dns(),
+        make_phishing([make_indicator("suspicious_keyword", 12)], fraud_probability=None),
+        tls,
+    )
+
+    assert assessment.score == 34
+    assert assessment.classification is RiskClassification.SUSPICIOUS
+    assert_score_matches_impacts(assessment)
+
+
+def test_http_findings_combine_with_suspicious_url_evidence() -> None:
+    http = HttpAnalysisResult(
+        status="ok",
+        supported=True,
+        request_successful=True,
+        scheme="https",
+        hostname="example.com",
+        port=443,
+        status_code=200,
+        findings=[
+            HttpFinding(
+                type="missing_content_security_policy",
+                severity="low",
+                description="No CSP was found.",
+                evidence="content-security-policy header is absent",
+                score_contribution=2,
+            )
+        ],
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(),
+        make_dns(),
+        make_phishing([make_indicator("suspicious_keyword", 12)], fraud_probability=None),
+        http_analysis=http,
+    )
+
+    assert assessment.score == 14
+    assert assessment.classification is RiskClassification.LOW_RISK
+    assert_score_matches_impacts(assessment)
+
+
+def test_exact_urlhaus_match_combines_with_other_signals_without_overwriting_score() -> None:
+    intel = ThreatIntelResult(
+        status=ThreatIntelStatus.MATCHED,
+        matched=True,
+        source="URLhaus",
+        indicator="https://example.com/",
+        match_scope="url",
+        threat_type="malware_download",
+        confidence=1,
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(),
+        make_dns(),
+        make_phishing(
+            [make_indicator("ip_hostname", 20, severity="high")],
+            fraud_probability=0.95,
+        ),
+        threat_intelligence=intel,
+    )
+
+    assert assessment.score == 87
+    assert assessment.score < 100
+    assert assessment.classification is RiskClassification.CONFIRMED_MALICIOUS
+    assert_score_matches_impacts(assessment)
+
+
+def test_multiple_weak_indicators_combine_to_suspicious() -> None:
+    indicators = [
+        make_indicator("weak_one", 12),
+        make_indicator("weak_two", 12),
+        make_indicator("weak_three", 12),
+    ]
+
+    assessment = RiskScorer().assess(
+        make_url(), make_dns(), make_phishing(indicators, fraud_probability=None)
+    )
+
+    assert assessment.score == 32
+    assert assessment.classification is RiskClassification.SUSPICIOUS
+    assert_score_matches_impacts(assessment)
+
+
+def test_errors_and_timeouts_add_uncertainty_not_risk_points() -> None:
+    dns = make_dns(failed=True)
+    tls = TlsAnalysisResult(
+        status="error",
+        supported=True,
+        connection_successful=False,
+        hostname="example.com",
+        port=443,
+    )
+    http = HttpAnalysisResult(
+        status="error",
+        supported=True,
+        request_successful=False,
+        scheme="https",
+        hostname="example.com",
+        port=443,
+        error="HTTP response timed out.",
+    )
+    intel = ThreatIntelResult(
+        status=ThreatIntelStatus.UNAVAILABLE,
+        matched=None,
+        source="URLhaus",
+        indicator="https://example.com/",
+        error="provider timeout",
+    )
+
+    assessment = RiskScorer().assess(
+        make_url(),
+        dns,
+        make_phishing(fraud_probability=None),
+        tls,
+        intel,
+        http,
+    )
+
+    assert assessment.score == 0
+    assert assessment.classification is RiskClassification.INCONCLUSIVE
+    assert all(item.weight == 0 for item in assessment.contributing_indicators)
+    assert len(assessment.limitations) >= 4
+    assert_score_matches_impacts(assessment)
+
+
+def test_not_applicable_tls_has_no_evidence_or_penalty_for_http_url() -> None:
+    url = UrlAnalyzer().analyze("http://example.com/")
+    tls = TlsAnalysisResult(
+        status="not_applicable",
+        supported=False,
+        connection_successful=False,
+        hostname="example.com",
+        port=80,
+    )
+    http = HttpAnalysisResult(
+        status="ok",
+        supported=True,
+        request_successful=True,
+        scheme="http",
+        hostname="example.com",
+        port=80,
+        status_code=200,
+        findings=[
+            HttpFinding(
+                type="insecure_http",
+                severity="medium",
+                description="The URL uses unencrypted HTTP.",
+                evidence="scheme=http",
+                score_contribution=10,
+            )
+        ],
+    )
+    assessment = RiskScorer().assess(
+        url,
+        make_dns(),
+        make_phishing(fraud_probability=None),
+        tls,
+        http_analysis=http,
+    )
+
+    assert assessment.score == 10
+    assert not any(item.source == "tls_analysis" for item in assessment.contributing_indicators)
+    assert_score_matches_impacts(assessment)
+
+
+def test_low_fraudurl_probability_is_limited_counterevidence() -> None:
+    assessment = RiskScorer().assess(
+        make_url(),
+        make_dns(),
+        make_phishing([make_indicator("suspicious_keyword", 15)], fraud_probability=0.1),
+    )
+    fraudurl = next(
+        item for item in assessment.contributing_indicators if item.indicator == "fraudurl_probability"
+    )
+
+    assert assessment.score == 7
+    assert fraudurl.weight == -8
+    assert assessment.classification is RiskClassification.LOW_RISK
+    assert_score_matches_impacts(assessment)

@@ -6,10 +6,12 @@ import subprocess
 import sys
 from typing import Protocol
 
+from app.analyzers.typosquatting import detect_lookalike_domain
 from app.models.phishing import (
     FraudUrlSignal,
     PhishingAnalysisResult,
     PhishingIndicator,
+    TyposquattingAnalysis,
 )
 from app.models.url import UrlAnalysisResult
 
@@ -105,6 +107,7 @@ class PhishingAnalyzer:
         url = url_analysis.normalized_url
         hostname = url_analysis.hostname.lower()
         indicators: list[PhishingIndicator] = []
+        typosquatting = TyposquattingAnalysis()
 
         def add(kind: str, points: int, description: str, evidence: str) -> None:
             severity = "high" if points >= 20 else "medium" if points >= 12 else "low"
@@ -133,6 +136,27 @@ class PhishingAnalyzer:
 
         if url_analysis.is_ip_address:
             add("ip_hostname", 20, "URL uses an IP address as its hostname.", hostname)
+
+        lookalike = detect_lookalike_domain(url_analysis.registered_domain)
+        if lookalike is not None:
+            typosquatting = TyposquattingAnalysis(
+                detected=True,
+                submitted_domain=url_analysis.registered_domain,
+                possible_intended_site=lookalike.intended_domain,
+                similarity=lookalike.similarity,
+                edit_distance=lookalike.edit_distance,
+            )
+            add(
+                "typosquatting_domain",
+                30,
+                f"Domain {url_analysis.registered_domain} closely resembles "
+                f"{lookalike.intended_domain}, which is a likely typosquatting attempt.",
+                f"registered_domain={url_analysis.registered_domain}; "
+                f"possible_intended_site={lookalike.intended_domain}; "
+                f"similarity={lookalike.similarity:.2f} (high); "
+                f"edit_distance={lookalike.edit_distance}; "
+                f"normalized_edit_distance={lookalike.normalized_edit_distance}",
+            )
 
         if url_analysis.has_username:
             add(
@@ -213,4 +237,5 @@ class PhishingAnalyzer:
             score=score,
             indicators=indicators,
             fraudurl=fraudurl,
+            typosquatting=typosquatting,
         )

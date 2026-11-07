@@ -15,7 +15,8 @@ class RiskEvidence(BaseModel):
     source: str
     indicator: str
     severity: str
-    weight: int = Field(ge=0, le=100)
+    # Signed marginal score impact: positive increases risk, negative reduces it.
+    weight: int = Field(ge=-100, le=100)
     description: str
     evidence: str
 
