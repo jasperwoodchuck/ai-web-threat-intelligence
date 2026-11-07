@@ -14,9 +14,30 @@ interface DnsAnalysis {
   reason: string | null;
 }
 
+interface PhishingIndicator {
+  type: string;
+  severity: string;
+  description: string;
+  evidence: string;
+  score_contribution: number;
+}
+
+interface PhishingAnalysis {
+  is_suspicious: boolean;
+  score: number;
+  indicators: PhishingIndicator[];
+  fraudurl: {
+    status: string;
+    result: Record<string, unknown> | null;
+    score_contribution: number;
+    error: string | null;
+  };
+}
+
 interface UrlAnalysisResponse {
   url_analysis: Record<string, unknown>;
   dns_analysis: DnsAnalysis;
+  phishing_analysis: PhishingAnalysis;
 }
 
 export default function App() {
@@ -111,6 +132,29 @@ export default function App() {
                   </li>
                 ))}
               </ul>
+            )}
+            <h3>Phishing Analysis</h3>
+            <p>Suspicious: {result.phishing_analysis.is_suspicious ? "Yes" : "No"}</p>
+            <p>Score: {result.phishing_analysis.score}</p>
+            <h4>Indicators:</h4>
+            {result.phishing_analysis.indicators.length === 0 ? (
+              <p>None</p>
+            ) : (
+              <ul>
+                {result.phishing_analysis.indicators.map((indicator, index) => (
+                  <li key={`${indicator.type}-${index}`}>
+                    {indicator.description} Evidence: {indicator.evidence} (severity:{" "}
+                    {indicator.severity}; score contribution: {indicator.score_contribution})
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p>fraudurl signal: {result.phishing_analysis.fraudurl.status}</p>
+            {result.phishing_analysis.fraudurl.result !== null && (
+              <pre>{JSON.stringify(result.phishing_analysis.fraudurl.result, null, 2)}</pre>
+            )}
+            {result.phishing_analysis.fraudurl.error && (
+              <p>fraudurl unavailable: {result.phishing_analysis.fraudurl.error}</p>
             )}
           </>
         )}

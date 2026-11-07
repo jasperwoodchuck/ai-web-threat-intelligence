@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.analyzers.dns import DnsAnalyzer
 from app import main
+from app.models.phishing import FraudUrlSignal, PhishingAnalysisResult
 from app.main import app
 
 client = TestClient(app)
@@ -31,6 +32,17 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
             return []
 
     monkeypatch.setattr(main, "dns_analyzer", DnsAnalyzer(resolver=FakeResolver()))
+
+    class FakePhishingAnalyzer:
+        def analyze(self, url_analysis):
+            assert url_analysis.hostname == "example.com"
+            return PhishingAnalysisResult(
+                is_suspicious=False,
+                score=0,
+                fraudurl=FraudUrlSignal(status="ok", result={"fraud_verdict": "LEGITIMATE"}),
+            )
+
+    monkeypatch.setattr(main, "phishing_analyzer", FakePhishingAnalyzer())
     response = client.post(
         "/api/v1/analyze/url", json={"url": "https://example.com/login"}
     )
@@ -42,6 +54,8 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     assert body["url_analysis"]["registered_domain"] == "example.com"
     assert body["dns_analysis"]["hostname"] == "example.com"
     assert body["dns_analysis"]["ipv4_addresses"] == ["192.0.2.20"]
+    assert body["phishing_analysis"]["is_suspicious"] is False
+    assert body["phishing_analysis"]["fraudurl"]["result"]["fraud_verdict"] == "LEGITIMATE"
 
 
 def test_invalid_url_returns_422() -> None:
