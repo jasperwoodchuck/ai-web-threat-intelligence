@@ -34,10 +34,29 @@ interface PhishingAnalysis {
   };
 }
 
+interface RiskEvidence {
+  source: string;
+  indicator: string;
+  severity: string;
+  weight: number;
+  description: string;
+  evidence: string;
+}
+
+interface RiskAssessment {
+  classification: string;
+  score: number;
+  confidence: number;
+  contributing_indicators: RiskEvidence[];
+  recommended_precautions: string[];
+  limitations: string[];
+}
+
 interface UrlAnalysisResponse {
   url_analysis: Record<string, unknown>;
   dns_analysis: DnsAnalysis;
   phishing_analysis: PhishingAnalysis;
+  risk_assessment: RiskAssessment;
 }
 
 export default function App() {
@@ -156,6 +175,35 @@ export default function App() {
             {result.phishing_analysis.fraudurl.error && (
               <p>fraudurl unavailable: {result.phishing_analysis.fraudurl.error}</p>
             )}
+            <h3>Risk Assessment</h3>
+            <p>Classification: {result.risk_assessment.classification}</p>
+            <p>Score: {result.risk_assessment.score}</p>
+            <p>Confidence: {result.risk_assessment.confidence.toFixed(2)}</p>
+            <h4>Why:</h4>
+            {result.risk_assessment.contributing_indicators.length === 0 ? (
+              <p>No contributing indicators. The result is inconclusive.</p>
+            ) : (
+              <ul>
+                {result.risk_assessment.contributing_indicators.map((item, index) => (
+                  <li key={`${item.source}-${item.indicator}-${index}`}>
+                    {item.description} Evidence: {item.evidence} (source: {item.source}; weight:{" "}
+                    {item.weight})
+                  </li>
+                ))}
+              </ul>
+            )}
+            <h4>Precautions:</h4>
+            <ul>
+              {result.risk_assessment.recommended_precautions.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+            <h4>Limitations:</h4>
+            <ul>
+              {result.risk_assessment.limitations.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
           </>
         )}
       </section>

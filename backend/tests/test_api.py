@@ -49,6 +49,12 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
 
     assert response.status_code == 200
     body = response.json()
+    assert set(body) == {
+        "url_analysis",
+        "dns_analysis",
+        "phishing_analysis",
+        "risk_assessment",
+    }
     assert body["url_analysis"]["is_valid"] is True
     assert body["url_analysis"]["normalized_url"] == "https://example.com/login"
     assert body["url_analysis"]["registered_domain"] == "example.com"
@@ -56,6 +62,8 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     assert body["dns_analysis"]["ipv4_addresses"] == ["192.0.2.20"]
     assert body["phishing_analysis"]["is_suspicious"] is False
     assert body["phishing_analysis"]["fraudurl"]["result"]["fraud_verdict"] == "LEGITIMATE"
+    assert body["risk_assessment"]["classification"] == "Inconclusive"
+    assert body["risk_assessment"]["score"] == 0
 
 
 def test_invalid_url_returns_422() -> None:

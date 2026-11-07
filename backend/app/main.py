@@ -5,11 +5,13 @@ from app.analyzers.phishing import PhishingAnalyzer
 from app.analyzers.url import UrlAnalyzer
 from app.models.analysis import UrlAnalysisResponse
 from app.models.url import UrlAnalysisRequest
+from app.scoring.risk import RiskScorer
 
 app = FastAPI(title="Web Threat Intelligence API")
 url_analyzer = UrlAnalyzer()
 dns_analyzer = DnsAnalyzer()
 phishing_analyzer = PhishingAnalyzer()
+risk_scorer = RiskScorer()
 
 
 @app.get("/api/v1/health")
@@ -27,8 +29,14 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse:
 
     dns_analysis = dns_analyzer.analyze(url_analysis.hostname)
     phishing_analysis = phishing_analyzer.analyze(url_analysis)
+    risk_assessment = risk_scorer.assess(
+        url_analysis,
+        dns_analysis,
+        phishing_analysis,
+    )
     return UrlAnalysisResponse(
         url_analysis=url_analysis,
         dns_analysis=dns_analysis,
         phishing_analysis=phishing_analysis,
+        risk_assessment=risk_assessment,
     )
