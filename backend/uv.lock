@@ -47,6 +47,7 @@ name = "backend"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "dnspython" },
     { name = "fastapi", extra = ["standard"] },
     { name = "tldextract" },
 ]
@@ -58,6 +59,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dnspython", specifier = ">=2.9.2" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.162.0" },
     { name = "tldextract", specifier = ">=5.3" },
 ]

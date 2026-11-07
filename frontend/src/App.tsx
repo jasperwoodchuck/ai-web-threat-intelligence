@@ -1,8 +1,27 @@
 import { useState, type FormEvent } from "react";
 
+interface DnsAnalysis {
+  hostname: string;
+  status: string;
+  resolution_succeeded: boolean;
+  ipv4_addresses: string[];
+  ipv6_addresses: string[];
+  cname_target: string | null;
+  mail_servers: { preference: number; exchange: string }[];
+  nameservers: string[];
+  txt_records: string[];
+  errors: { record_type: string; error_type: string; message: string }[];
+  reason: string | null;
+}
+
+interface UrlAnalysisResponse {
+  url_analysis: Record<string, unknown>;
+  dns_analysis: DnsAnalysis;
+}
+
 export default function App() {
   const [url, setUrl] = useState("");
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<UrlAnalysisResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,7 +54,7 @@ export default function App() {
         return;
       }
 
-      setResult(payload);
+      setResult(payload as UrlAnalysisResponse);
     } catch {
       setError("Could not reach the analysis service.");
     } finally {
@@ -66,7 +85,35 @@ export default function App() {
         <h2>Results</h2>
         {loading && <p>Analyzing URL…</p>}
         {error && <p role="alert">{error}</p>}
-        {result !== null && <pre>{JSON.stringify(result, null, 2)}</pre>}
+        {result !== null && (
+          <>
+            <h3>URL Analysis</h3>
+            <pre>{JSON.stringify(result.url_analysis, null, 2)}</pre>
+            <h3>DNS Analysis</h3>
+            <p>Status: {result.dns_analysis.status}</p>
+            <p>A Records: {result.dns_analysis.ipv4_addresses.join(", ") || "None"}</p>
+            <p>AAAA Records: {result.dns_analysis.ipv6_addresses.join(", ") || "None"}</p>
+            <p>CNAME: {result.dns_analysis.cname_target ?? "None"}</p>
+            <p>
+              MX Records:{" "}
+              {result.dns_analysis.mail_servers
+                .map((server) => `${server.preference} ${server.exchange}`)
+                .join(", ") || "None"}
+            </p>
+            <p>NS Records: {result.dns_analysis.nameservers.join(", ") || "None"}</p>
+            <p>TXT Records: {result.dns_analysis.txt_records.join("; ") || "None"}</p>
+            {result.dns_analysis.reason && <p>{result.dns_analysis.reason}</p>}
+            {result.dns_analysis.errors.length > 0 && (
+              <ul>
+                {result.dns_analysis.errors.map((item, index) => (
+                  <li key={`${item.record_type}-${index}`}>
+                    {item.record_type}: {item.error_type} — {item.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
       </section>
     </main>
   );
