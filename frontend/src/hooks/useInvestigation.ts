@@ -208,7 +208,12 @@ export function useInvestigation() {
       }
 
       if (mode === "url" && "url_analysis" in payload) setResult(payload);
-      else if (mode === "message" && "ai_explanation" in payload && !("filename" in payload))
+      else if (
+        mode === "message" &&
+        "ai_explanation" in payload &&
+        "deterministic_indicators" in payload &&
+        !("filename" in payload)
+      )
         setMessageResult(payload);
       else if (mode === "file" && "sha256" in payload) setFileResult(payload);
       else throw new AnalysisClientError("Analysis service returned an unexpected response.");

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Badge } from "../ui/Badge";
 import type {
   FileAnalysisResponse,
+  AIExplanation,
   MessageAnalysisResponse,
   NormalizedAnalysisResult,
   SummaryFinding,
@@ -19,10 +20,28 @@ function toneForIndicator(severity: string): Tone {
   return "info";
 }
 
+function unavailableAiOverview(note: string): AIExplanation {
+  return {
+    status: "unavailable",
+    summary: null,
+    suspicious_indicators: [],
+    evidence: [],
+    recommended_actions: [],
+    limitations: [],
+    confidence: null,
+    advisory_note: note,
+  };
+}
+
 function normalizeUrl(result: UrlAnalysisResponse): NormalizedAnalysisResult {
   const findings = keyFindings(result);
   const status = result.http_analysis.status_code;
   return {
+    aiOverview:
+      result.ai_explanation ??
+      unavailableAiOverview(
+        "The backend did not provide an AI overview for this website analysis.",
+      ),
     risk: result.risk_assessment,
     findings,
     recommendation:
@@ -108,11 +127,7 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
       tone: "neutral",
     });
   return {
-    aiOverview: {
-      status: result.ai_explanation.status,
-      summary: result.ai_explanation.summary,
-      advisoryNote: result.ai_explanation.advisory_note,
-    },
+    aiOverview: result.ai_explanation,
     risk: result.risk_assessment,
     findings: unique,
     recommendation:
@@ -174,11 +189,7 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
 
 function normalizeFile(result: FileAnalysisResponse): NormalizedAnalysisResult {
   return {
-    aiOverview: {
-      status: result.ai_explanation.status,
-      summary: result.ai_explanation.summary ?? result.summary,
-      advisoryNote: result.ai_explanation.advisory_note,
-    },
+    aiOverview: result.ai_explanation,
     contentType:
       result.classification_confidence < MIN_CLASSIFICATION_CONFIDENCE
         ? "Unknown"
@@ -186,15 +197,13 @@ function normalizeFile(result: FileAnalysisResponse): NormalizedAnalysisResult {
             .replaceAll("_", " ")
             .replace(/\b\w/g, (letter) => letter.toUpperCase()),
     risk: result.risk_assessment,
-    findings: result.key_findings
-      .slice(0, 4)
-      .map((item) => ({
-        title: item,
-        detail: "Evidence from extracted content or visual inspection.",
-        tone: /match|credential|urgent|impersonat|payment|suspicious/i.test(item)
-          ? "warning"
-          : "info",
-      })),
+    findings: result.key_findings.slice(0, 4).map((item) => ({
+      title: item,
+      detail: "Evidence from extracted content or visual inspection.",
+      tone: /match|credential|urgent|impersonat|payment|suspicious/i.test(item)
+        ? "warning"
+        : "info",
+    })),
     recommendation: result.recommended_action,
     checks: [
       {
@@ -230,6 +239,61 @@ function normalizeFile(result: FileAnalysisResponse): NormalizedAnalysisResult {
   };
 }
 
+function AiOverviewCard({ overview }: { overview: AIExplanation }) {
+  const available = overview.status === "available";
+  return (
+    <details className="ai-overview-card">
+      <summary>
+        <div className="ai-overview-card-heading">
+          <span className="ai-advisory-mark" aria-hidden="true">
+            ✦
+          </span>
+          <span>
+            <strong>AI overview</strong>
+            <small>Advisory interpretation</small>
+          </span>
+          <Badge tone={available ? "info" : "warning"}>
+            {available ? "Available" : "Unavailable"}
+          </Badge>
+        </div>
+        <p className="ai-overview-preview">
+          {available
+            ? overview.summary || "No AI overview was returned."
+            : "AI interpretation is unavailable. Review the security checks and evidence."}
+        </p>
+        <span className="ai-overview-expand">View AI details</span>
+      </summary>
+      <div className="ai-overview-expanded">
+        <p>{overview.advisory_note}</p>
+        {overview.suspicious_indicators.length > 0 && (
+          <>
+            <h4>Observed indicators</h4>
+            <ValueList items={overview.suspicious_indicators} />
+          </>
+        )}
+        {overview.evidence.length > 0 && (
+          <>
+            <h4>Supporting evidence</h4>
+            <ValueList items={overview.evidence} />
+          </>
+        )}
+        {overview.recommended_actions.length > 0 && (
+          <>
+            <h4>Suggested actions</h4>
+            <ValueList items={overview.recommended_actions} />
+          </>
+        )}
+        {overview.limitations.length > 0 && (
+          <>
+            <h4>Limitations</h4>
+            <ValueList items={overview.limitations} />
+          </>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function Summary({ result }: { result: NormalizedAnalysisResult }) {
   const riskTone = toneForRisk(result.risk.classification);
   return (
@@ -242,118 +306,103 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
           Content type <Badge tone="info">{result.contentType}</Badge>
         </div>
       )}
-      <section className={`risk-hero risk-${riskTone}`} aria-label="Overall risk summary">
-        <div className="risk-main">
-          <div className="risk-heading">
-            <div className="section-icon risk-icon" aria-hidden="true">
-              !
-            </div>
-            <div>
-              <p className="eyebrow">OVERALL VERDICT</p>
-              <h2>{result.risk.classification}</h2>
-            </div>
-            <Badge tone={riskTone}>{result.risk.classification}</Badge>
-          </div>
-          <div className="risk-meter-wrap">
-            <div className="risk-meter-label">
-              <span>Risk score</span>
-              <span>
-                {result.risk.score} <small>/ 100</small>
-              </span>
-            </div>
-            <progress
-              className={`risk-meter meter-${riskTone}`}
-              max="100"
-              value={result.risk.score}
-              aria-label={`Risk score ${result.risk.score} out of 100`}
-            />
-          </div>
-        </div>
-        <div className="risk-side-metrics">
-          <div className="risk-stat">
-            <span className="stat-label">Confidence</span>
-            <strong>
-              {Math.round(result.risk.confidence * 100)}
-              <small>%</small>
-            </strong>
-          </div>
-          <div className="risk-stat">
-            <span className="stat-label">Signals</span>
-            <strong>{result.risk.contributing_indicators.length}</strong>
-          </div>
-        </div>
-      </section>
-      <section className="summary-findings">
-        <div className="summary-section-heading">
-          <div>
-            <p className="eyebrow">PRIORITY EVIDENCE</p>
-            <h3>Key findings</h3>
-          </div>
-        </div>
-        <ul className="key-findings-list">
-          {result.findings.slice(0, 4).map((item, index) => (
-            <li className="key-finding" key={`${item.title}-${index}`}>
-              <span className={`key-finding-mark mark-${item.tone}`} aria-hidden="true">
-                {item.tone === "good"
-                  ? "✓"
-                  : item.tone === "danger" || item.tone === "warning"
-                    ? "!"
-                    : "·"}
-              </span>
-              <span className="key-finding-copy">
-                <strong>{item.title}</strong>
-                <span>{item.detail}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-      {result.aiOverview && (
-        <section className="result-section ai-advisory ai-overview" aria-label="AI overview">
-          <div className="ai-advisory-heading">
-            <span className="ai-advisory-mark" aria-hidden="true">✦</span>
-            <div>
-              <h3>AI overview</h3>
-              <span>Advisory interpretation</span>
-            </div>
-            <Badge tone={result.aiOverview.status === "available" ? "info" : "warning"}>
-              {result.aiOverview.status === "available" ? "Available" : "Unavailable"}
-            </Badge>
-          </div>
-          <p>
-            {result.aiOverview.status === "available"
-              ? result.aiOverview.summary || "No AI overview was returned."
-              : "An AI overview could not be generated for this analysis. Review the deterministic checks and evidence below."}
-          </p>
-          <p className="ai-overview-note">{result.aiOverview.advisoryNote}</p>
-        </section>
-      )}
-      <section className="notice-card notice-precautions analysis-recommendation">
-        <div className="notice-heading">
-          <span aria-hidden="true">✓</span>
-          <h3>Recommended action</h3>
-        </div>
-        <p>{result.recommendation}</p>
-      </section>
-      <section className="summary-overview">
-        <div className="summary-section-heading">
-          <div>
-            <p className="eyebrow">AT A GLANCE</p>
-            <h3>Security checks</h3>
-          </div>
-        </div>
-        <div className="overview-grid">
-          {result.checks.map((check) => (
-            <div className="overview-card" key={check.title}>
-              <div className="overview-card-top">
-                <span className="overview-title">{check.title}</span>
+      <div className="analysis-summary-layout">
+        <div className="analysis-summary-primary">
+          <section className={`risk-hero risk-${riskTone}`} aria-label="Overall risk summary">
+            <div className="risk-main">
+              <div className="risk-heading">
+                <div className="section-icon risk-icon" aria-hidden="true">
+                  !
+                </div>
+                <div>
+                  <p className="eyebrow">OVERALL VERDICT</p>
+                  <h2>{result.risk.classification}</h2>
+                </div>
+                <Badge tone={riskTone}>{result.risk.classification}</Badge>
               </div>
-              <Badge tone={check.tone}>{check.state}</Badge>
-              <strong className="overview-metric">{check.detail}</strong>
+              <div className="risk-meter-wrap">
+                <div className="risk-meter-label">
+                  <span>Risk score</span>
+                  <span>
+                    {result.risk.score} <small>/ 100</small>
+                  </span>
+                </div>
+                <progress
+                  className={`risk-meter meter-${riskTone}`}
+                  max="100"
+                  value={result.risk.score}
+                  aria-label={`Risk score ${result.risk.score} out of 100`}
+                />
+              </div>
             </div>
-          ))}
+            <div className="risk-side-metrics">
+              <div className="risk-stat">
+                <span className="stat-label">Confidence</span>
+                <strong>
+                  {Math.round(result.risk.confidence * 100)}
+                  <small>%</small>
+                </strong>
+              </div>
+              <div className="risk-stat">
+                <span className="stat-label">Signals</span>
+                <strong>{result.risk.contributing_indicators.length}</strong>
+              </div>
+            </div>
+          </section>
+          <section className="summary-findings">
+            <div className="summary-section-heading">
+              <div>
+                <p className="eyebrow">PRIORITY EVIDENCE</p>
+                <h3>Key findings</h3>
+              </div>
+            </div>
+            <ul className="key-findings-list">
+              {result.findings.slice(0, 4).map((item, index) => (
+                <li className="key-finding" key={`${item.title}-${index}`}>
+                  <span className={`key-finding-mark mark-${item.tone}`} aria-hidden="true">
+                    {item.tone === "good"
+                      ? "✓"
+                      : item.tone === "danger" || item.tone === "warning"
+                        ? "!"
+                        : "·"}
+                  </span>
+                  <span className="key-finding-copy">
+                    <strong>{item.title}</strong>
+                    <span>{item.detail}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className="notice-card notice-precautions analysis-recommendation">
+            <div className="notice-heading">
+              <span aria-hidden="true">✓</span>
+              <h3>Recommended action</h3>
+            </div>
+            <p>{result.recommendation}</p>
+          </section>
+          <section className="summary-overview">
+            <div className="summary-section-heading">
+              <div>
+                <p className="eyebrow">AT A GLANCE</p>
+                <h3>Security checks</h3>
+              </div>
+            </div>
+            <div className="overview-grid">
+              {result.checks.map((check) => (
+                <div className="overview-card" key={check.title}>
+                  <div className="overview-card-top">
+                    <span className="overview-title">{check.title}</span>
+                  </div>
+                  <Badge tone={check.tone}>{check.state}</Badge>
+                  <strong className="overview-metric">{check.detail}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
-      </section>
+        <AiOverviewCard overview={result.aiOverview} />
+      </div>
     </>
   );
 }

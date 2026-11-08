@@ -40,7 +40,7 @@ export interface FileAnalysisResponse {
   deterministic_indicators: MessageIndicator[];
   url_threat_intelligence: MessageAnalysisResponse["url_threat_intelligence"];
   risk_assessment: RiskAssessment;
-  ai_explanation: MessageAnalysisResponse["ai_explanation"];
+  ai_explanation: AIExplanation;
 }
 
 export interface UrlAnalysis {
@@ -205,6 +205,7 @@ export interface UrlAnalysisResponse {
   tls_analysis: TlsAnalysis;
   http_analysis: HttpAnalysis;
   threat_intelligence: ThreatIntelligenceResult;
+  ai_explanation?: AIExplanation;
 }
 export interface MessageIndicator {
   category: string;
@@ -225,17 +226,18 @@ export interface MessageAnalysisResponse {
     threat_type: string | null;
   }[];
   risk_assessment: RiskAssessment;
-  ai_explanation: {
-    status: string;
-    summary: string | null;
-    suspicious_indicators: string[];
-    evidence: string[];
-    recommended_actions: string[];
-    limitations: string[];
-    confidence: number | null;
-    advisory_note: string;
-  };
+  ai_explanation: AIExplanation;
   limitations: string[];
+}
+export interface AIExplanation {
+  status: string;
+  summary: string | null;
+  suspicious_indicators: string[];
+  evidence: string[];
+  recommended_actions: string[];
+  limitations: string[];
+  confidence: number | null;
+  advisory_note: string;
 }
 export interface KeyValue {
   label: string;
@@ -255,11 +257,7 @@ export interface NormalizedSecurityCheck {
 }
 export interface NormalizedAnalysisResult {
   contentType?: string;
-  aiOverview?: {
-    status: string;
-    summary: string | null;
-    advisoryNote: string;
-  };
+  aiOverview: AIExplanation;
   risk: RiskAssessment;
   findings: SummaryFinding[];
   recommendation: string;

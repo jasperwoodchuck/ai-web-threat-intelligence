@@ -127,6 +127,68 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse | UrlAvailab
         threat_intelligence,
         http_analysis=http_analysis,
     )
+    try:
+        website_evidence = [
+            {
+                "category": "dns",
+                "severity": "info" if dns_analysis.resolution_succeeded else "warning",
+                "description": "DNS resolution",
+                "evidence": (
+                    f"Resolved to {len(dns_analysis.ipv4_addresses) + len(dns_analysis.ipv6_addresses)} address records."
+                    if dns_analysis.resolution_succeeded
+                    else "DNS resolution did not return address records."
+                ),
+            },
+            {
+                "category": "tls",
+                "severity": "info" if tls_analysis.certificate_verified else "warning",
+                "description": "TLS certificate",
+                "evidence": tls_analysis.protocol_version or tls_analysis.status,
+            },
+            {
+                "category": "http",
+                "severity": "info" if http_analysis.request_successful else "warning",
+                "description": "HTTP response",
+                "evidence": (
+                    f"HTTP {http_analysis.status_code}"
+                    if http_analysis.status_code is not None
+                    else http_analysis.status
+                ),
+            },
+            {
+                "category": "phishing",
+                "severity": "warning" if phishing_analysis.is_suspicious else "info",
+                "description": "Phishing indicators",
+                "evidence": "; ".join(
+                    indicator.description for indicator in phishing_analysis.indicators
+                ) or "No indicators returned.",
+            },
+            {
+                "category": "risk",
+                "severity": str(risk_assessment.classification),
+                "description": f"Risk score {risk_assessment.score}/100",
+                "evidence": str(risk_assessment.classification),
+            },
+        ]
+        website_evidence.extend(
+            {
+                "category": item.source,
+                "severity": item.severity,
+                "description": item.description,
+                "evidence": item.evidence,
+            }
+            for item in risk_assessment.contributing_indicators
+        )
+        ai_explanation = ai_provider.explain(
+            f"Website host assessed: {url_analysis.hostname}",
+            website_evidence,
+            [threat_intelligence.model_dump(mode="json")],
+        )
+    except Exception:
+        ai_explanation = AIExplanation(
+            status="unavailable",
+            limitations=["AI website interpretation was unavailable; technical checks are preserved."],
+        )
     return UrlAnalysisResponse(
         availability=availability,
         url_analysis=url_analysis,
@@ -137,6 +199,7 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse | UrlAvailab
         tls_analysis=tls_analysis,
         http_analysis=http_analysis,
         threat_intelligence=threat_intelligence,
+        ai_explanation=ai_explanation,
     )
 
 

@@ -9,6 +9,7 @@ from app.analyzers.phishing import PhishingAnalyzer
 from app.analyzers.reachability import ReachabilityResult
 from app.models.dns import DnsAnalysisResult
 from app.models.http import HttpAnalysisResult
+from app.models.message import AIExplanation
 from app.models.phishing import FraudUrlSignal, PhishingAnalysisResult
 from app.models.tls import TlsAnalysisResult, TlsCertificate
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
@@ -100,6 +101,15 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     monkeypatch.setattr(main, "reachability_checker", SimpleNamespace(check=lambda *_: ReachabilityResult("reachable", "Website is reachable.", "Mock server responded.", 200)))
     monkeypatch.setattr(
         main,
+        "ai_provider",
+        SimpleNamespace(
+            explain=lambda *_args: AIExplanation(
+                status="available", summary="The checks show no listed threat match."
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        main,
         "threat_intel_provider",
         SimpleNamespace(
             lookup=lambda indicator: ThreatIntelResult(
@@ -126,6 +136,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
         "tls_analysis",
         "http_analysis",
         "threat_intelligence",
+        "ai_explanation",
     }
     assert body["availability"]["status"] == "reachable"
     assert body["url_analysis"]["is_valid"] is True
@@ -142,6 +153,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     assert body["http_analysis"]["status_code"] == 200
     assert body["threat_intelligence"]["status"] == "no_match"
     assert body["threat_intelligence"]["matched"] is False
+    assert body["ai_explanation"]["status"] == "available"
 
 
 def test_invalid_url_returns_422() -> None:

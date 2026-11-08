@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 from app.models.dns import DnsAnalysisResult
 from app.models.http import HttpAnalysisResult
+from app.models.message import AIExplanation
 from app.models.phishing import PhishingAnalysisResult, TyposquattingAnalysis
 from app.models.risk import RiskAssessment
 from app.models.tls import TlsAnalysisResult
@@ -19,6 +20,7 @@ class UrlAnalysisResponse(BaseModel):
     http_analysis: HttpAnalysisResult
     threat_intelligence: ThreatIntelResult
     risk_assessment: RiskAssessment
+    ai_explanation: AIExplanation
 
 
 class WebsiteAvailability(BaseModel):
