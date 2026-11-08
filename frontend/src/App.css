@@ -49,7 +49,7 @@
 .app-shell.is-initial .site-footer { padding-top: 12px; padding-bottom: 14px; }
 .app-shell.is-initial .empty-state { min-height: 0; grid-template-columns: auto 1fr; justify-items: start; align-content: center; gap: 18px; padding: 16px 22px; text-align: left; background-image: radial-gradient(ellipse at 12% 50%, rgba(51, 142, 199, .1), transparent 22rem); }
 .app-shell.is-initial .empty-state { animation: none; }
-.app-shell.is-initial .empty-state::before { position: absolute; z-index: 2; top: 0; left: 0; width: 32%; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), var(--accent-blue), transparent); box-shadow: 0 0 10px color-mix(in srgb, var(--accent-blue) 48%, transparent); content: ""; animation: empty-loading-sweep 3.8s cubic-bezier(.45,0,.35,1) infinite; }
+.app-shell.is-initial .empty-state::before { position: absolute; z-index: 2; top: 0; left: 0; width: 3%; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), var(--accent-blue), transparent); box-shadow: 0 0 13px color-mix(in srgb, var(--accent-blue) 65%, transparent); content: ""; animation: empty-loading-sweep 3.2s cubic-bezier(.82,0,.18,1) infinite; }
 .app-shell.is-initial .empty-state::after { display: none; }
 .app-shell.is-initial .empty-visual { width: 50px; height: 50px; margin: 0; }
 .app-shell.is-initial .empty-network-graphic { width: 50px; height: 50px; }
@@ -64,7 +64,7 @@
 .empty-pulse-inner { animation: empty-core-pulse 3.2s cubic-bezier(.16,.72,.24,1) infinite; }
 .empty-pulse-outer { animation: empty-core-pulse 3.2s cubic-bezier(.16,.72,.24,1) 1.55s infinite; }
 @keyframes empty-core-pulse { 0% { transform: scale(.55); opacity: 0; } 18% { opacity: .58; } 100% { transform: scale(1.75); opacity: 0; } }
-@keyframes empty-loading-sweep { 0% { transform: translateX(-110%); opacity: .3; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { transform: translateX(420%); opacity: .3; } }
+@keyframes empty-loading-sweep { 0% { width: 3%; transform: translateX(-110%); opacity: 0; } 10% { width: 9%; opacity: 1; } 38% { width: 20%; } 52% { width: 27%; } 76% { width: 12%; opacity: 1; } 92% { transform: translateX(2900%); width: 7%; opacity: .85; } 100% { width: 3%; transform: translateX(3300%); opacity: 0; } }
 .app-shell.is-initial .empty-copy { text-align: left; }
 .app-shell.is-initial .empty-copy .eyebrow { margin-bottom: 3px; }
 .app-shell.is-initial .empty-state h2 { font-size: 18px; }
