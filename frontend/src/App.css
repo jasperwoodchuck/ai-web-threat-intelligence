@@ -103,13 +103,16 @@
 .empty-state { position: relative; min-height: 240px; display: grid; justify-items: center; align-content: center; margin-top: 24px; overflow: hidden; border: 1px solid var(--border-default); border-radius: 0; background-color: var(--surface-card); background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px), radial-gradient(circle at 50% 48%, rgba(51, 142, 199, .1), transparent 17rem); background-size: 30px 30px, 30px 30px, auto; }
 .empty-state::after { position: absolute; top: 0; left: -30%; width: 25%; height: 100%; background: linear-gradient(90deg, transparent, rgba(82, 167, 220, .07), transparent); content: ""; animation: empty-scan 5s linear infinite; }
 @keyframes empty-scan { to { left: 115%; } }
-.empty-visual { position: relative; width: 92px; height: 48px; margin-bottom: 12px; }
-.empty-network-line { position: absolute; top: 22px; left: 14px; width: 65px; height: 1px; transform: rotate(-14deg); background: var(--border-strong); box-shadow: 17px 10px 0 var(--border-strong); }
-.empty-network-node { position: absolute; width: 7px; height: 7px; border: 2px solid var(--surface-card); border-radius: 0; background: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 10px rgba(52, 189, 198, .55); }
-.empty-network-node.node-a { top: 18px; left: 10px; }
-.empty-network-node.node-b { top: 2px; left: 43px; background: var(--accent-blue); box-shadow: 0 0 0 1px var(--accent-blue), 0 0 10px rgba(70, 119, 240, .55); }
-.empty-network-node.node-c { top: 35px; right: 10px; background: var(--accent-violet); box-shadow: 0 0 0 1px var(--accent-violet), 0 0 10px rgba(116, 84, 232, .45); }
-.empty-state-icon { position: absolute; top: 11px; left: 36px; width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid var(--border-default); border-radius: 0; background: var(--surface-card-solid); color: var(--accent); font-size: 22px; box-shadow: 0 5px 16px var(--shadow-color); }
+.empty-visual { position: relative; width: 164px; height: 88px; margin-bottom: 14px; }
+.empty-network-graphic { width: 164px; height: 88px; overflow: visible; }
+.network-edge { stroke: var(--border-strong); stroke-width: 1; opacity: .78; vector-effect: non-scaling-stroke; }
+.network-edge-muted { opacity: .45; }
+.network-node { stroke: var(--surface-card); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.network-node-cyan { fill: var(--accent); }
+.network-node-blue { fill: var(--accent-blue); }
+.network-node-violet { fill: var(--accent-violet); }
+.network-core { fill: var(--surface-card-solid); stroke: var(--accent-blue); stroke-width: 1; vector-effect: non-scaling-stroke; filter: drop-shadow(0 5px 8px var(--shadow-color)); }
+.network-core-mark { stroke: var(--accent); stroke-width: 1.4; stroke-linecap: square; stroke-linejoin: miter; vector-effect: non-scaling-stroke; }
 .empty-copy { position: relative; z-index: 1; text-align: center; }
 .empty-copy .eyebrow { margin-bottom: 6px; color: var(--text-muted); font-size: 12px; }
 .empty-state h2 { margin: 0; color: var(--text-heading); font-size: 20px; letter-spacing: -.025em; }
