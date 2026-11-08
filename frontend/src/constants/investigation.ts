@@ -17,8 +17,8 @@ export interface InvestigationModeConfig {
 export const INVESTIGATION_MODES: Record<AnalysisMode, InvestigationModeConfig> = {
   url: {
     id: "url",
-    label: "URL",
-    description: "Website or domain",
+    label: "Check a website",
+    description: "Enter a URL or domain",
     inputLabel: "URL to analyze",
     placeholder: "https://example.com",
     supportingText: "HTTP and HTTPS URLs supported",
@@ -27,8 +27,8 @@ export const INVESTIGATION_MODES: Record<AnalysisMode, InvestigationModeConfig> 
   },
   message: {
     id: "message",
-    label: "Text Message",
-    description: "Email, notification, or chat",
+    label: "Check a message",
+    description: "Paste an email, text, or chat",
     inputLabel: "Suspicious message",
     placeholder: "Paste the suspicious message, email, or notification here...",
     supportingText: "Up to 20,000 characters",
