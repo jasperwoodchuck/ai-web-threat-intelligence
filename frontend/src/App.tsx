@@ -10,7 +10,9 @@ function App() {
   const { theme, selectTheme } = useTheme();
   const investigation = useInvestigation();
 
-  return <div className="app-shell">
+  const hasInvestigationContent = investigation.loading || investigation.error || investigation.availability || investigation.result || investigation.messageResult;
+
+  return <div className={`app-shell${hasInvestigationContent ? " has-investigation-content" : " is-initial"}`}>
     <Header theme={theme} onThemeChange={selectTheme} />
     <main id="top" className="main-container">
       <InvestigationWorkspace
