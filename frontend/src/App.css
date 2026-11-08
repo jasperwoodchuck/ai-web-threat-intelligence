@@ -48,6 +48,11 @@
 .theme-toggle { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid rgba(132, 184, 216, .24); border-radius: 0; background: rgba(3, 13, 25, .48); }
 .theme-toggle button { min-width: 55px; padding: 6px 8px; border: 1px solid transparent; border-radius: 0; background: transparent; color: #91a9bd; font-size: 12px; font-weight: 700; cursor: pointer; transition: .2s ease; }
 .theme-toggle button span { margin-right: 3px; font-size: 13px; }
+.theme-toggle button { width: 38px; min-width: 38px; height: 34px; display: grid; place-items: center; padding: 0; }
+.theme-icon { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform .45s cubic-bezier(.2,.8,.2,1), filter .35s ease, color .2s ease; }
+.theme-toggle button[aria-pressed="true"] .theme-icon { color: #8de9e2; filter: drop-shadow(0 0 5px rgba(90, 207, 215, .45)); animation: theme-arrive .48s cubic-bezier(.2,.8,.2,1) both; }
+.theme-toggle button:hover .theme-icon { transform: rotate(18deg) scale(1.08); }
+@keyframes theme-arrive { from { transform: rotate(-55deg) scale(.68); opacity: .3; } to { transform: rotate(0) scale(1); opacity: 1; } }
 .theme-toggle button[aria-pressed="true"] { border-color: rgba(99, 205, 210, .28); background: rgba(55, 158, 171, .2); color: #edfafa; }
 
 .main-container { width: min(1080px, calc(100% - 40px)); margin: 0 auto; padding: 48px 0 64px; }
