@@ -23,8 +23,6 @@ function normalizeUrl(result: UrlAnalysisResponse): NormalizedAnalysisResult {
   const findings = keyFindings(result);
   const status = result.http_analysis.status_code;
   return {
-    source: "Website analysis",
-    target: result.url_analysis.normalized_url ?? result.url_analysis.original_url,
     risk: result.risk_assessment,
     findings,
     recommendation:
@@ -110,8 +108,6 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
       tone: "neutral",
     });
   return {
-    source: "Message analysis",
-    target: "Submitted message",
     risk: result.risk_assessment,
     findings: unique,
     recommendation:
@@ -173,8 +169,6 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
 
 function normalizeFile(result: FileAnalysisResponse): NormalizedAnalysisResult {
   return {
-    source: "File analysis",
-    target: result.filename,
     contentType:
       result.classification_confidence < MIN_CLASSIFICATION_CONFIDENCE
         ? "Unknown"
@@ -231,11 +225,7 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
   return (
     <>
       <div className="report-heading">
-        <div>
-          <p className="eyebrow">INVESTIGATION RESULTS</p>
-          <h2>{result.source}</h2>
-        </div>
-        <span className="report-target is-mono">{result.target}</span>
+        <p className="eyebrow">INVESTIGATION RESULTS</p>
       </div>
       {result.contentType && (
         <div className="content-type-label">

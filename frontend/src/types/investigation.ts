@@ -254,8 +254,6 @@ export interface NormalizedSecurityCheck {
   tone: Tone;
 }
 export interface NormalizedAnalysisResult {
-  source: string;
-  target: string;
   contentType?: string;
   risk: RiskAssessment;
   findings: SummaryFinding[];
