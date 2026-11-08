@@ -218,9 +218,11 @@
 .loading-card strong, .loading-card small { display: block; }
 .loading-card strong { color: var(--text-heading); font-size: 14px; }
 .loading-card small { margin-top: 4px; color: var(--text-muted); font-size: 13px; }
+.loading-copy { min-width: 0; flex: 1 1 220px; }
+.loading-status { animation: loading-status-in .22s ease-out both; }
+@keyframes loading-status-in { from { opacity: .35; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 .loading-progress { width: 210px; height: 4px; margin-left: auto; overflow: hidden; border-radius: 0; background: var(--surface-inset); }
-.loading-progress i { display: block; width: 40%; height: 100%; border-radius: 0; background: linear-gradient(90deg, var(--accent), var(--accent-blue)); animation: load-progress 1.35s ease-in-out infinite; }
-@keyframes load-progress { from { transform: translateX(-130%); } to { transform: translateX(280%); } }
+.loading-progress i { display: block; height: 100%; border-radius: 0; background: linear-gradient(90deg, var(--accent), var(--accent-blue)); transition: width .7s cubic-bezier(.22, 1, .36, 1); }
 
 .empty-state { position: relative; min-height: 240px; display: grid; justify-items: center; align-content: center; margin-top: 24px; overflow: hidden; border: 1px solid var(--border-default); border-radius: 0; background-color: var(--surface-card); background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px), radial-gradient(circle at 50% 48%, rgba(51, 142, 199, .1), transparent 17rem); background-size: 30px 30px, 30px 30px, auto; }
 .empty-state::after { position: absolute; top: 0; left: -30%; width: 25%; height: 100%; background: linear-gradient(90deg, transparent, rgba(82, 167, 220, .07), transparent); content: ""; animation: empty-scan 5s linear infinite; }
@@ -494,7 +496,8 @@
   .analysis-supporting-text span:last-child { text-align: left; }
   .analysis-actions { align-items: stretch; flex-direction: column; gap: 12px; }
   .analyze-button { width: 100%; }
-  .loading-progress { display: none; }
+  .loading-card { flex-wrap: wrap; }
+  .loading-progress { width: calc(100% - 26px); flex: 0 0 calc(100% - 26px); margin: 2px 0 0 26px; }
   .empty-state { min-height: 220px; padding: 20px 14px; }
   .message-report-heading, .report-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
   .message-verdict { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 15px; }
@@ -542,6 +545,11 @@
 .empty-state h2 { font-size: 22px; }
 .empty-state p { font-size: 13px; line-height: 1.55; }
 .message-report, .report { margin-top: 36px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-status { animation: none; }
+  .loading-progress i { transition: none; }
+}
 .message-report-heading h2 { font-size: 24px; }
 .message-verdict { padding: 22px 24px; }
 .message-verdict h3 { font-size: 24px; }
