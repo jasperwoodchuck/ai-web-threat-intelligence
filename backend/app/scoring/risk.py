@@ -543,6 +543,35 @@ class RiskScorer:
             limitations.append("No URL threat-intelligence checks were available.")
         if ai_explanation.status != "available":
             limitations.extend(ai_explanation.limitations or ["AI explanation was unavailable."])
+        else:
+            ai_findings = list(dict.fromkeys(
+                item.strip()[:500]
+                for item in ai_explanation.suspicious_indicators
+                if item.strip()
+            ))[:4]
+            for finding in ai_findings:
+                confidence_note = (
+                    f"; model_confidence={ai_explanation.confidence:.2f}"
+                    if ai_explanation.confidence is not None
+                    else ""
+                )
+                signals.append(_RiskSignal(
+                    evidence=RiskEvidence(
+                        source="ai_interpretation",
+                        indicator="ai_suspicious_indicator",
+                        severity="medium",
+                        weight=0,
+                        description="The AI overview identified a suspicious message characteristic; this is advisory evidence.",
+                        evidence=f"{finding}{confidence_note}",
+                    ),
+                    strength=20,
+                    correlation_group="ai_interpretation",
+                    order=2,
+                ))
+            if ai_findings:
+                limitations.append(
+                    "AI-identified message characteristics contribute a capped, advisory amount to the risk score."
+                )
         evidence, score = self._aggregate(signals)
         classification = RiskClassification.CONFIRMED_MALICIOUS if exact_match and score >= _CONFIRMED_SCORE_THRESHOLD else self._classify(score)
         coverage = 0.65 if ai_explanation.status != "available" else 0.85
