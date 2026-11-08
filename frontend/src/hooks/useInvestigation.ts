@@ -1,6 +1,58 @@
-import { useState, type FormEvent } from "react";
-import { apiUrl } from "../lib/api";
+import { useRef, useState, type FormEvent } from "react";
+import { analysisApiBaseUrl, apiUrl, isProductionApiConfigured } from "../lib/api";
 import type { AnalysisMode, MessageAnalysisResponse, UrlAnalysisResponse } from "../types/investigation";
+
+const ANALYSIS_TIMEOUT_MS = 30_000;
+
+class AnalysisClientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnalysisClientError";
+  }
+}
+
+function isDevelopment() {
+  return import.meta.env.DEV;
+}
+
+function analysisLog(message: string, details?: Record<string, unknown>) {
+  if (isDevelopment()) console.debug(`[analysis] ${message}`, details ?? "");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function responseDetail(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  return typeof payload.detail === "string" ? payload.detail : null;
+}
+
+function expectedResponse(payload: unknown, mode: AnalysisMode): payload is UrlAnalysisResponse | MessageAnalysisResponse {
+  if (!isRecord(payload) || !isRecord(payload.risk_assessment)) return false;
+  return mode === "url"
+    ? isRecord(payload.url_analysis) && isRecord(payload.threat_intelligence)
+    : isRecord(payload.ai_explanation) && Array.isArray(payload.deterministic_indicators);
+}
+
+async function readJsonResponse(response: Response): Promise<unknown> {
+  const body = await response.text();
+  if (!body.trim()) return null;
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    if (!response.ok) return null;
+    throw new AnalysisClientError("Analysis service returned an unexpected response.");
+  }
+}
+
+function httpErrorMessage(status: number, payload: unknown): string {
+  const detail = responseDetail(payload);
+  if (status === 401 || status === 403) return "Analysis service rejected the request. Check production authorization configuration.";
+  if (status === 404) return "Analysis endpoint was not found. Check the production API URL and deployment route.";
+  if (status >= 500) return "Analysis service failed while processing the request.";
+  return detail ?? `Analysis request failed (HTTP ${status}).`;
+}
 
 export function useInvestigation() {
   const [mode, setMode] = useState<AnalysisMode>("url");
@@ -12,9 +64,10 @@ export function useInvestigation() {
   const [loading, setLoading] = useState(false);
   const [detailedOpen, setDetailedOpen] = useState(false);
   const [riskEvidenceOpen, setRiskEvidenceOpen] = useState(false);
+  const inFlightRef = useRef(false);
 
   function selectMode(nextMode: AnalysisMode) {
-    if (loading) return;
+    if (inFlightRef.current) return;
     setMode(nextMode);
     setError("");
     setResult(null);
@@ -23,6 +76,8 @@ export function useInvestigation() {
 
   async function analyze(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (inFlightRef.current) return;
+
     setError("");
     setResult(null);
     setMessageResult(null);
@@ -34,25 +89,58 @@ export function useInvestigation() {
       setError(mode === "url" ? "Enter a URL to analyze." : "Paste a message to analyze.");
       return;
     }
+    if (!isProductionApiConfigured) {
+      setError("Production API URL is not configured. Set VITE_API_BASE_URL and rebuild the frontend.");
+      return;
+    }
 
+    inFlightRef.current = true;
     setLoading(true);
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, ANALYSIS_TIMEOUT_MS);
+    const endpoint = apiUrl(`/api/v1/analyze/${mode}`);
+
+    analysisLog("started", { mode });
     try {
-      const response = await fetch(apiUrl(`/api/v1/analyze/${mode}`), {
+      analysisLog("request sent", { mode, endpoint: new URL(endpoint, window.location.origin).pathname });
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(mode === "url" ? { url: content } : { message: content }),
+        signal: controller.signal,
       });
-      const payload: unknown = await response.json();
+      analysisLog("response received", { mode, status: response.status, ok: response.ok });
+      const payload = await readJsonResponse(response);
+      analysisLog("response parsed", { mode, payloadType: isRecord(payload) ? "object" : typeof payload });
+
       if (!response.ok) {
-        const detail = typeof payload === "object" && payload !== null && "detail" in payload ? payload.detail : null;
-        setError(typeof detail === "string" ? detail : `Analysis failed (${response.status}).`);
-        return;
+        throw new AnalysisClientError(httpErrorMessage(response.status, payload));
       }
+      if (!expectedResponse(payload, mode)) {
+        throw new AnalysisClientError("Analysis service returned an unexpected response.");
+      }
+
       if (mode === "url") setResult(payload as UrlAnalysisResponse);
       else setMessageResult(payload as MessageAnalysisResponse);
-    } catch {
-      setError("Could not reach the analysis service.");
+      analysisLog("completed", { mode, status: "success" });
+    } catch (caughtError) {
+      if (timedOut) {
+        analysisLog("timeout", { mode, timeoutMs: ANALYSIS_TIMEOUT_MS });
+        setError("Analysis request timed out.");
+      } else if (caughtError instanceof AnalysisClientError) {
+        analysisLog("failed", { mode, reason: caughtError.message });
+        setError(caughtError.message);
+      } else {
+        analysisLog("failed", { mode, reason: "network or CORS failure" });
+        setError("Unable to reach the analysis service. Check the production API URL and CORS configuration.");
+      }
     } finally {
+      window.clearTimeout(timeoutId);
+      inFlightRef.current = false;
       setLoading(false);
     }
   }
@@ -60,5 +148,6 @@ export function useInvestigation() {
   return {
     mode, selectMode, url, setUrl, message, setMessage, messageResult, result, error, loading,
     detailedOpen, setDetailedOpen, riskEvidenceOpen, setRiskEvidenceOpen, analyze,
+    apiBaseUrl: analysisApiBaseUrl,
   };
 }

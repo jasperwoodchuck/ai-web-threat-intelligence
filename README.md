@@ -89,7 +89,7 @@ also allows `http://localhost:5173` and `http://127.0.0.1:5173` for local develo
 not allow credentials and permits only GET/POST plus the Content-Type header.
 
 The frontend build command is `bun install --frozen-lockfile && bun run build`, publishing
-`frontend/dist`. The Blueprint obtains `VITE_API_BASE_URL` from the backend's Render-provided
+the service-root `dist` directory. The Blueprint obtains `VITE_API_BASE_URL` from the backend's Render-provided
 external URL, so both frontend API workflows call the configured backend. In local development,
 leave `VITE_API_BASE_URL` blank: the Vite `/api` proxy continues to forward requests to
 `http://127.0.0.1:8000`.
@@ -109,6 +109,26 @@ frontend build-time setting and contains only the public API origin, never crede
 custom frontend domain, set `FRONTEND_ORIGIN` to that exact HTTPS origin. Local setup remains
 `make install`, `make dev`, and `make test`; see `backend/.env.example` and
 `frontend/.env.example` for local configuration templates.
+
+### Production request checklist
+
+The frontend reads `VITE_API_BASE_URL` during the static-site build. After changing it in Render,
+use **Save, rebuild, and deploy**; changing the variable without rebuilding does not change the
+already-generated JavaScript bundle. The deployed value should be the backend's public HTTPS
+origin, for example `https://<your-api>.onrender.com`, without `/api` or a trailing slash.
+
+Verify the backend independently before testing the browser workflow:
+
+```bash
+curl -fsS https://<your-api>.onrender.com/api/v1/health
+```
+
+The browser origin must exactly match one of the comma-separated values in `FRONTEND_ORIGIN`,
+including the `https://` scheme and hostname. A CORS or network error is surfaced by the frontend;
+the client also aborts an analysis request after 30 seconds and reports a timeout instead of
+remaining in the analyzing state. URLhaus and OpenRouter failures are represented as unavailable
+analysis signals by the backend; they are not frontend credentials and must never be added to
+`VITE_*` variables.
 
 ## License
 
