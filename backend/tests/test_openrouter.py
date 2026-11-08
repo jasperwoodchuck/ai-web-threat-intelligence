@@ -148,6 +148,24 @@ def test_interpretation_retry_after_then_success(monkeypatch) -> None:
     assert len(calls) == 2 and waits == [1.5]
 
 
+def test_interpretation_404_logs_sanitized_provider_body_and_request_context(monkeypatch, caplog) -> None:
+    body = b'{"error":{"code":404,"message":"No endpoints found for this model. Bearer secret-token"}}'
+    calls = []
+    def not_found(*_args, **_kwargs):
+        calls.append(1)
+        raise HTTPError("https://openrouter.ai/api/v1/chat/completions", 404, "Not Found", {"Content-Type": "application/json"}, io.BytesIO(body))
+    monkeypatch.setattr("app.ai.openrouter.urlopen", not_found)
+    caplog.set_level(logging.INFO, logger="app.ai.openrouter")
+    result = provider().explain("A message", [], [])
+    assert result.status == "unavailable"
+    assert len(calls) == 1
+    assert "No endpoints found for this model" in caplog.text
+    assert "Bearer <redacted>" in caplog.text
+    assert "secret-token" not in caplog.text
+    assert "request_id=" in caplog.text and "response_time_ms=" in caplog.text
+    assert "method=POST" in caplog.text and "attempt=1 max_attempts=2" in caplog.text
+
+
 def test_interpretation_timeout_is_reported_clearly_and_preserves_deterministic_analysis(monkeypatch, caplog) -> None:
     def timeout(*_args, **_kwargs):
         raise TimeoutError("socket timed out")
@@ -159,7 +177,9 @@ def test_interpretation_timeout_is_reported_clearly_and_preserves_deterministic_
 
     assert result.status == "unavailable"
     assert "90 seconds" in result.limitations[0]
-    assert "timed out operation=interpretation timeout_seconds=90.0" in caplog.text
+    assert "request timed out" in caplog.text
+    assert "operation=interpretation" in caplog.text and "timeout_seconds=90.0" in caplog.text
+    assert "request_id=" in caplog.text and "response_time_ms=" in caplog.text
     assert "test-secret-key" not in caplog.text
 
 
@@ -174,7 +194,8 @@ def test_wrapped_socket_timeout_is_reported_as_timeout(monkeypatch, caplog) -> N
 
     assert result.status == "unavailable"
     assert "did not respond within 90 seconds" in result.limitations[0]
-    assert "timed out operation=interpretation" in caplog.text
+    assert "request timed out" in caplog.text
+    assert "operation=interpretation" in caplog.text and "response_time_ms=" in caplog.text
 
 
 def test_image_and_text_inspection_use_same_configured_model(monkeypatch) -> None:

@@ -1,7 +1,12 @@
+import io
+import json
+import logging
+
 from fastapi.testclient import TestClient
 
+from app import main
 from app.main import app
-from app.models.message import AIExplanation
+from app.models.message import AIExplanation, MessageAnalysisRequest
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
 
@@ -15,6 +20,43 @@ def test_message_api_success_with_ai_unavailable(monkeypatch) -> None:
     assert body["ai_explanation"]["status"] == "unavailable"
     assert body["risk_assessment"]["classification"] != "Confirmed Malicious"
     assert body["url_threat_intelligence"][0]["status"] == "unavailable"
+
+
+def test_message_route_makes_one_correlated_openrouter_request(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(main.ai_provider, "api_key", "test-secret-key")
+    monkeypatch.setattr(main.ai_provider, "model", "test-model")
+    response_payload = {
+        "choices": [{"message": {"content": json.dumps({
+            "summary": "Review the request carefully.", "suspicious_indicators": [], "evidence": [],
+            "recommended_actions": ["Verify independently."], "limitations": [], "confidence": 0.8,
+        })}, "finish_reason": "stop"}]
+    }
+    calls = []
+    class SuccessResponse(io.BytesIO):
+        status = 200
+        headers = {"Content-Type": "application/json"}
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            self.close()
+    def fake_urlopen(request, timeout):
+        calls.append((request, timeout))
+        return SuccessResponse(json.dumps(response_payload).encode())
+
+    monkeypatch.setattr("app.ai.openrouter.urlopen", fake_urlopen)
+    caplog.set_level(logging.INFO)
+    result = main.analyze_message(MessageAnalysisRequest(message="Please review this account notice."))
+
+    assert result.ai_explanation.status == "available"
+    assert len(calls) == 1
+    request_ids = {
+        record.getMessage().split("request_id=", 1)[1].split()[0]
+        for record in caplog.records
+        if "request_id=" in record.getMessage()
+    }
+    assert len(request_ids) == 1
+    assert any("operation=message_analysis" in record.getMessage() for record in caplog.records)
+    assert any("operation=interpretation" in record.getMessage() for record in caplog.records)
 
 
 def test_message_api_rejects_empty_and_oversized(monkeypatch) -> None:

@@ -1,14 +1,19 @@
 import asyncio
 import hashlib
 import logging
+import os
+import platform
+import sys
 from contextlib import asynccontextmanager
+from importlib.metadata import version
+from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.ai.openrouter import ModelCapabilityError, ModelResponseError, OpenRouterProvider, ProviderRequestError
+from app.ai.openrouter import OPENROUTER_REQUEST_ID, ModelCapabilityError, ModelResponseError, OpenRouterProvider, ProviderRequestError
 from app.analyzers.dns import DnsAnalyzer
 from app.analyzers.http import HttpAnalyzer
 from app.analyzers.message import MAX_MESSAGE_LENGTH, MessageAnalyzer
@@ -52,6 +57,11 @@ async def _keep_service_warm() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    logger.info(
+        "runtime diagnostics python=%s fastapi=%s httpx=%s uvicorn=%s uv_version=%s sys_prefix=%s virtual_env=%s",
+        platform.python_version(), version("fastapi"), version("httpx"), version("uvicorn"),
+        os.getenv("UV_VERSION", "unknown"), sys.prefix, os.getenv("VIRTUAL_ENV", "unset"),
+    )
     keep_alive_task = asyncio.create_task(_keep_service_warm(), name="render-keep-alive")
     try:
         yield
@@ -221,14 +231,21 @@ def analyze_message(request: MessageAnalysisRequest) -> MessageAnalysisResponse:
         raise HTTPException(status_code=422, detail="Message must not be empty or whitespace.")
     if len(message) > MAX_MESSAGE_LENGTH:
         raise HTTPException(status_code=422, detail=f"Message must be at most {MAX_MESSAGE_LENGTH} characters.")
-    outcome = analyze_message_content(
-        message,
-        message_analyzer=message_analyzer,
-        url_analyzer=url_analyzer,
-        threat_intel_provider=threat_intel_provider,
-        ai_provider=ai_provider,
-        risk_scorer=risk_scorer,
-    )
+    request_id = uuid4().hex
+    request_token = OPENROUTER_REQUEST_ID.set(request_id)
+    logger.info("API analysis started request_id=%s operation=message_analysis", request_id)
+    try:
+        outcome = analyze_message_content(
+            message,
+            message_analyzer=message_analyzer,
+            url_analyzer=url_analyzer,
+            threat_intel_provider=threat_intel_provider,
+            ai_provider=ai_provider,
+            risk_scorer=risk_scorer,
+        )
+    finally:
+        OPENROUTER_REQUEST_ID.reset(request_token)
+    logger.info("API analysis completed request_id=%s operation=message_analysis", request_id)
     return MessageAnalysisResponse(**outcome["analysis"], **{key: value for key, value in outcome.items() if key != "analysis"})
 
 

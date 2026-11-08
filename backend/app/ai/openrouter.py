@@ -1,12 +1,14 @@
 """OpenRouter chat-completions client with bounded, structured advisory output."""
 
-import json
 import base64
+import json
 import logging
 import math
 import os
 import re
 import time
+import uuid
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.error import HTTPError, URLError
@@ -21,6 +23,9 @@ IMAGE_ANALYSIS_MAX_ATTEMPTS = 2
 OPENROUTER_MAX_RETRY_WAIT_SECONDS = 1.5
 INTERPRETATION_MAX_ATTEMPTS = 2
 logger = logging.getLogger(__name__)
+OPENROUTER_REQUEST_ID: ContextVar[str | None] = ContextVar("openrouter_request_id", default=None)
+_BEARER_PATTERN = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+")
+_SECRET_PATTERN = re.compile(r"(?i)((?:api[_-]?key|authorization|access[_-]?token)\s*[:=]\s*)[^\s,;]+")
 
 INTERPRETATION_PROPERTIES = {
     "summary": {"type": "string"},
@@ -71,6 +76,36 @@ def _json_schema_response(name: str, properties: dict[str, object]) -> dict[str,
 def _content_type(response: object) -> str:
     headers = getattr(response, "headers", None)
     return str(headers.get("Content-Type", "unknown")) if headers else "unknown"
+
+
+def _safe_http_error_body(error: HTTPError, limit: int = 4_096) -> str:
+    """Return a short provider error detail without logging arbitrary response fields."""
+    try:
+        raw = error.read(limit).decode("utf-8", errors="replace")
+    except OSError:
+        return "<unreadable response body>"
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        detail = raw
+    else:
+        provider_error = decoded.get("error") if isinstance(decoded, dict) else None
+        if isinstance(provider_error, dict):
+            allowed = {
+                key: provider_error[key]
+                for key in ("code", "message")
+                if isinstance(provider_error.get(key), (str, int, float))
+            }
+            detail = json.dumps(allowed, ensure_ascii=False, sort_keys=True)
+        elif isinstance(provider_error, str):
+            detail = provider_error
+        elif isinstance(decoded, dict) and isinstance(decoded.get("message"), str):
+            detail = decoded["message"]
+        else:
+            detail = "<no safe provider error fields>"
+    detail = _BEARER_PATTERN.sub(r"\1<redacted>", detail)
+    detail = _SECRET_PATTERN.sub(r"\1<redacted>", detail)
+    return re.sub(r"[\r\n\t]+", " ", detail)[:500]
 
 
 def _decode_json_object(content: object) -> dict[str, object]:
@@ -255,17 +290,33 @@ class OpenRouterProvider(AIProvider):
             ],
         }).encode()
         request = Request(ENDPOINT, data=body, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "Accept": "application/json"}, method="POST")
+        request_id = OPENROUTER_REQUEST_ID.get() or uuid.uuid4().hex
+        logger.info(
+            "OpenRouter request prepared request_id=%s operation=interpretation provider=openrouter url=%s method=%s model=%s timeout_seconds=%s payload_bytes=%s message_chars=%s evidence_count=%s url_intelligence_count=%s temperature=0 response_format=json_schema schema_strict=true provider_require_parameters=true content_type=application/json accept=application/json authorization_header=present image_fields=none api_key_configured=true",
+            request_id, request.full_url, request.get_method(), self.model, self.timeout, len(body), len(message),
+            len(deterministic_evidence), len(url_intelligence),
+        )
         try:
             for attempt in range(1, INTERPRETATION_MAX_ATTEMPTS + 1):
+                attempt_started = time.monotonic()
                 try:
                     with urlopen(request, timeout=self.timeout) as response:
                         payload = _read_openrouter_response(response, "interpretation", 256_000)
+                        status = getattr(response, "status", None)
+                    logger.info(
+                        "OpenRouter request completed request_id=%s operation=interpretation provider=openrouter status=%s attempt=%s max_attempts=%s response_time_ms=%.1f",
+                        request_id, status, attempt, INTERPRETATION_MAX_ATTEMPTS,
+                        (time.monotonic() - attempt_started) * 1_000,
+                    )
                     break
                 except HTTPError as exc:
                     retry_value = exc.headers.get("Retry-After") if exc.headers else None
+                    error_body = _safe_http_error_body(exc)
                     logger.warning(
-                        "OpenRouter HTTP failure operation=interpretation provider=openrouter status=%s content_type=%s retry_after=%s attempt=%s max_attempts=%s model=%s",
-                        exc.code, _content_type(exc), retry_value, attempt, INTERPRETATION_MAX_ATTEMPTS, self.model,
+                        "OpenRouter HTTP failure request_id=%s operation=interpretation provider=openrouter url=%s status=%s content_type=%s retry_after=%s attempt=%s max_attempts=%s model=%s response_time_ms=%.1f error_body=%s",
+                        request_id, request.full_url, exc.code, _content_type(exc), retry_value, attempt,
+                        INTERPRETATION_MAX_ATTEMPTS, self.model,
+                        (time.monotonic() - attempt_started) * 1_000, error_body,
                     )
                     if exc.code != 429 or attempt >= INTERPRETATION_MAX_ATTEMPTS:
                         raise
@@ -279,7 +330,7 @@ class OpenRouterProvider(AIProvider):
                     continue
             parsed = _response_content(payload, "interpretation")
             result = _validate_interpretation(parsed)
-            logger.info("OpenRouter structured output parsed operation=interpretation status=available")
+            logger.info("OpenRouter structured output parsed request_id=%s operation=interpretation status=available", request_id)
             return result
         except HTTPError as exc:
             if exc.code == 429:
@@ -300,8 +351,9 @@ class OpenRouterProvider(AIProvider):
             )
         except TimeoutError:
             logger.warning(
-                "OpenRouter request timed out operation=interpretation timeout_seconds=%s",
-                self.timeout,
+                "OpenRouter request timed out request_id=%s operation=interpretation provider=openrouter url=%s model=%s attempt=%s max_attempts=%s timeout_seconds=%s response_time_ms=%.1f",
+                request_id, request.full_url, self.model, attempt, INTERPRETATION_MAX_ATTEMPTS,
+                self.timeout, (time.monotonic() - attempt_started) * 1_000,
             )
             return AIExplanation(
                 status="unavailable",
@@ -312,8 +364,9 @@ class OpenRouterProvider(AIProvider):
         except URLError as exc:
             if isinstance(exc.reason, TimeoutError):
                 logger.warning(
-                    "OpenRouter request timed out operation=interpretation timeout_seconds=%s",
-                    self.timeout,
+                    "OpenRouter request timed out request_id=%s operation=interpretation provider=openrouter url=%s model=%s attempt=%s max_attempts=%s timeout_seconds=%s response_time_ms=%.1f",
+                    request_id, request.full_url, self.model, attempt, INTERPRETATION_MAX_ATTEMPTS,
+                    self.timeout, (time.monotonic() - attempt_started) * 1_000,
                 )
                 return AIExplanation(
                     status="unavailable",
@@ -321,13 +374,21 @@ class OpenRouterProvider(AIProvider):
                         f"OpenRouter did not respond within {self.timeout:g} seconds; deterministic analysis is preserved."
                     ],
                 )
-            logger.warning("OpenRouter request failed operation=interpretation error_type=%s", type(exc).__name__)
+            logger.warning(
+                "OpenRouter request failed request_id=%s operation=interpretation provider=openrouter url=%s model=%s attempt=%s max_attempts=%s error_type=%s response_time_ms=%.1f",
+                request_id, request.full_url, self.model, attempt, INTERPRETATION_MAX_ATTEMPTS,
+                type(exc).__name__, (time.monotonic() - attempt_started) * 1_000,
+            )
             return AIExplanation(status="unavailable", limitations=["OpenRouter could not be reached; deterministic analysis is preserved."])
         except OSError as exc:
-            logger.warning("OpenRouter request failed operation=interpretation error_type=%s", type(exc).__name__)
+            logger.warning(
+                "OpenRouter request failed request_id=%s operation=interpretation provider=openrouter url=%s model=%s attempt=%s max_attempts=%s error_type=%s response_time_ms=%.1f",
+                request_id, request.full_url, self.model, attempt, INTERPRETATION_MAX_ATTEMPTS,
+                type(exc).__name__, (time.monotonic() - attempt_started) * 1_000,
+            )
             return AIExplanation(status="unavailable", limitations=["OpenRouter could not be reached; deterministic analysis is preserved."])
         except ModelResponseError as exc:
-            logger.warning("OpenRouter structured output invalid operation=interpretation reason=%s", exc)
+            logger.warning("OpenRouter structured output invalid request_id=%s operation=interpretation provider=openrouter response_time_ms=%.1f reason=%s", request_id, (time.monotonic() - attempt_started) * 1_000, exc)
             return AIExplanation(
                 status="malformed",
                 limitations=[f"OpenRouter response could not be validated: {exc}."],
