@@ -17,16 +17,16 @@ install:
 	cd frontend && bun install
 	cd backend && uv sync
 
-# Both servers are needed for the frontend's /api proxy to reach the backend.
 dev:
-	$(MAKE) --no-print-directory -j2 dev-frontend dev-backend
+	@echo "Starting frontend and backend..."
+	$(MAKE) --no-print-directory dev-backend & \
+	$(MAKE) --no-print-directory dev-frontend
 
 dev-frontend:
 	cd frontend && bun run dev
 
 dev-backend:
-	cd backend && uv run fastapi dev app/main.py
-
+	cd backend && uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000
 test:
 	cd backend && uv run pytest
 
