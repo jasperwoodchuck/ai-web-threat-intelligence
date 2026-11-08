@@ -70,6 +70,33 @@ test("malformed AI output is distinguished from provider unavailability", () => 
   expect(markup).toContain('aria-label="AI interpretation: Malformed. View analysis details."');
 });
 
+test("rate limited interpretation shows an explicit unavailable overview", () => {
+  const limitedResult = {
+    ...messageResult,
+    ai_explanation: {
+      ...messageResult.ai_explanation,
+      status: "unavailable",
+      summary: null,
+      suspicious_indicators: [],
+      evidence: [],
+      recommended_actions: [],
+      limitations: ["OpenRouter interpretation is temporarily unavailable due to rate limiting (HTTP 429); deterministic analysis is preserved."],
+      confidence: null,
+    },
+  };
+  const markup = renderToStaticMarkup(
+    createElement(AnalysisResult, {
+      result: limitedResult,
+      detailedOpen: false,
+      onDetailedToggle: () => {},
+    }),
+  );
+  expect(markup).toContain("AI overview");
+  expect(markup).toContain("Unavailable</span>");
+  expect(markup).toContain("temporarily unavailable because the provider is rate limited");
+  expect(markup).toContain("Review the deterministic analysis below.");
+});
+
 test("rate-limited image analysis is shown as unavailable in the file result", () => {
   const fileResult = {
     filename: "evidence.png", media_type: "image/png", size_bytes: 12, sha256: "a".repeat(64),
@@ -92,6 +119,6 @@ test("rate-limited image analysis is shown as unavailable in the file result", (
     createElement(AnalysisResult, { result: fileResult, detailedOpen: false, onDetailedToggle: () => {} }),
   );
   expect(markup).toContain("Unavailable</span>");
-  expect(markup).toContain("Image analysis is unavailable.");
+  expect(markup).toContain("AI overview is temporarily unavailable because the provider is rate limited.");
   expect(markup).toContain("AI overview: Unavailable");
 });

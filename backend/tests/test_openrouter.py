@@ -121,6 +121,7 @@ def test_openrouter_http_error_is_unavailable_and_logged_without_secrets(monkeyp
         )
 
     monkeypatch.setattr("app.ai.openrouter.urlopen", fail)
+    monkeypatch.setattr("app.ai.openrouter.time.sleep", lambda _seconds: None)
     caplog.set_level(logging.WARNING, logger="app.ai.openrouter")
 
     result = provider().explain("A message", [], [])
@@ -128,7 +129,23 @@ def test_openrouter_http_error_is_unavailable_and_logged_without_secrets(monkeyp
     assert result.status == "unavailable"
     assert "HTTP 429" in result.limitations[0]
     assert "status=429" in caplog.text
+    assert "attempt=2 max_attempts=2" in caplog.text
+    assert "temporarily unavailable due to rate limiting" in result.limitations[0]
     assert "test-secret-key" not in caplog.text
+
+
+def test_interpretation_retry_after_then_success(monkeypatch) -> None:
+    calls, waits = [], []
+    def request(*_args, **_kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise HTTPError("https://openrouter.ai/api/v1/chat/completions", 429, "rate limited", {"Retry-After": "30"}, io.BytesIO())
+        return response(json.dumps(VALID_INTERPRETATION))
+    monkeypatch.setattr("app.ai.openrouter.urlopen", request)
+    monkeypatch.setattr("app.ai.openrouter.time.sleep", waits.append)
+    result = provider().explain("A message", [], [])
+    assert result.status == "available"
+    assert len(calls) == 2 and waits == [1.5]
 
 
 def test_interpretation_timeout_is_reported_clearly_and_preserves_deterministic_analysis(monkeypatch, caplog) -> None:

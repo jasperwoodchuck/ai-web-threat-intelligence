@@ -18,7 +18,8 @@ from app.models.message import AIExplanation
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_REQUEST_TIMEOUT_SECONDS = 90.0
 IMAGE_ANALYSIS_MAX_ATTEMPTS = 2
-IMAGE_ANALYSIS_MAX_RETRY_WAIT_SECONDS = 1.5
+OPENROUTER_MAX_RETRY_WAIT_SECONDS = 1.5
+INTERPRETATION_MAX_ATTEMPTS = 2
 logger = logging.getLogger(__name__)
 
 INTERPRETATION_PROPERTIES = {
@@ -255,21 +256,47 @@ class OpenRouterProvider(AIProvider):
         }).encode()
         request = Request(ENDPOINT, data=body, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "Accept": "application/json"}, method="POST")
         try:
-            with urlopen(request, timeout=self.timeout) as response:
-                payload = _read_openrouter_response(response, "interpretation", 256_000)
+            for attempt in range(1, INTERPRETATION_MAX_ATTEMPTS + 1):
+                try:
+                    with urlopen(request, timeout=self.timeout) as response:
+                        payload = _read_openrouter_response(response, "interpretation", 256_000)
+                    break
+                except HTTPError as exc:
+                    retry_value = exc.headers.get("Retry-After") if exc.headers else None
+                    logger.warning(
+                        "OpenRouter HTTP failure operation=interpretation provider=openrouter status=%s content_type=%s retry_after=%s attempt=%s max_attempts=%s model=%s",
+                        exc.code, _content_type(exc), retry_value, attempt, INTERPRETATION_MAX_ATTEMPTS, self.model,
+                    )
+                    if exc.code != 429 or attempt >= INTERPRETATION_MAX_ATTEMPTS:
+                        raise
+                    wait = _retry_after_seconds(retry_value)
+                    if wait is None:
+                        wait = min(0.25 * (2 ** (attempt - 1)), OPENROUTER_MAX_RETRY_WAIT_SECONDS)
+                    wait = min(wait, OPENROUTER_MAX_RETRY_WAIT_SECONDS)
+                    if wait > 0:
+                        logger.info("OpenRouter interpretation rate limit retry operation=interpretation attempt=%s max_attempts=%s wait_seconds=%.3f", attempt, INTERPRETATION_MAX_ATTEMPTS, wait)
+                        time.sleep(wait)
+                    continue
             parsed = _response_content(payload, "interpretation")
             result = _validate_interpretation(parsed)
             logger.info("OpenRouter structured output parsed operation=interpretation status=available")
             return result
         except HTTPError as exc:
-            logger.warning(
-                "OpenRouter HTTP failure operation=interpretation status=%s content_type=%s",
-                exc.code,
-                _content_type(exc),
-            )
+            if exc.code == 429:
+                limitation = "OpenRouter interpretation is temporarily unavailable due to rate limiting (HTTP 429); deterministic analysis is preserved."
+            elif exc.code in (401, 403):
+                limitation = "OpenRouter interpretation is unavailable because provider authentication or authorization failed; deterministic analysis is preserved."
+            elif exc.code == 400:
+                limitation = "OpenRouter rejected the interpretation request; deterministic analysis is preserved."
+            elif exc.code == 408:
+                limitation = "OpenRouter interpretation timed out; deterministic analysis is preserved."
+            elif exc.code >= 500:
+                limitation = "OpenRouter interpretation is temporarily unavailable due to a provider error; deterministic analysis is preserved."
+            else:
+                limitation = f"OpenRouter returned HTTP {exc.code}; deterministic analysis is preserved."
             return AIExplanation(
                 status="unavailable",
-                limitations=[f"OpenRouter returned HTTP {exc.code}; deterministic analysis is preserved."],
+                limitations=[limitation],
             )
         except TimeoutError:
             logger.warning(
@@ -346,8 +373,8 @@ class OpenRouterProvider(AIProvider):
                 if exc.code == 429:
                     wait = _retry_after_seconds(retry_value)
                     if wait is None:
-                        wait = min(0.25 * (2 ** (attempt - 1)), IMAGE_ANALYSIS_MAX_RETRY_WAIT_SECONDS)
-                    wait = min(wait, IMAGE_ANALYSIS_MAX_RETRY_WAIT_SECONDS)
+                        wait = min(0.25 * (2 ** (attempt - 1)), OPENROUTER_MAX_RETRY_WAIT_SECONDS)
+                    wait = min(wait, OPENROUTER_MAX_RETRY_WAIT_SECONDS)
                     if attempt < IMAGE_ANALYSIS_MAX_ATTEMPTS and wait > 0:
                         logger.info("OpenRouter image analysis rate limit retry operation=image_analysis attempt=%s max_attempts=%s wait_seconds=%.3f", attempt, IMAGE_ANALYSIS_MAX_ATTEMPTS, wait)
                         time.sleep(wait)
