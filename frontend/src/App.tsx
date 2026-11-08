@@ -1,5 +1,4 @@
 import "./App.css";
-import { Footer } from "./components/layout/Footer";
 import { Header } from "./components/layout/Header";
 import { AnimatedSecurityBackground } from "./components/layout/AnimatedSecurityBackground";
 import { InvestigationWorkspace } from "./components/investigation/InvestigationWorkspace";
@@ -44,7 +43,6 @@ function App() {
         setRiskEvidenceOpen={investigation.setRiskEvidenceOpen}
       />
     </main>
-    <Footer />
   </div>;
 }
 
