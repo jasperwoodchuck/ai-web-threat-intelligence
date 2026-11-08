@@ -1,6 +1,9 @@
 export type Tone = "neutral" | "good" | "warning" | "danger" | "info";
 export type Theme = "light" | "dark";
 export type AnalysisMode = "url" | "message";
+export type WebsiteStatus = "reachable" | "not_found" | "unreachable" | "error";
+export interface WebsiteAvailability { status: WebsiteStatus; message: string; details: string; domain: string; http_status: number | null; }
+export interface UrlAvailabilityResponse { availability: WebsiteAvailability; }
 
 export interface UrlAnalysis {
   original_url: string;
@@ -60,6 +63,7 @@ export interface ThreatIntelligenceResult {
   reference: string | null; checked_at: string; error: string | null;
 }
 export interface UrlAnalysisResponse {
+  availability: WebsiteAvailability;
   url_analysis: UrlAnalysis; dns_analysis: DnsAnalysis; phishing_analysis: PhishingAnalysis;
   typosquatting: TyposquattingAnalysis; risk_assessment: RiskAssessment; tls_analysis: TlsAnalysis;
   http_analysis: HttpAnalysis; threat_intelligence: ThreatIntelligenceResult;

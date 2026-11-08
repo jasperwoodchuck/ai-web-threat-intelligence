@@ -2,13 +2,14 @@ import { EmptyState } from "../ui/EmptyState";
 import { ErrorState } from "../ui/ErrorState";
 import { LoadingState } from "../ui/LoadingState";
 import { Badge as Pill } from "../ui/Badge";
-import type { MessageAnalysisResponse, UrlAnalysisResponse } from "../../types/investigation";
+import type { MessageAnalysisResponse, UrlAnalysisResponse, WebsiteAvailability } from "../../types/investigation";
 import { ValueList } from "./ResultPrimitives";
 import { UrlInvestigationReport } from "./UrlInvestigationReport";
 import { toneForRisk } from "../../lib/analysis";
 
 type InvestigationResultsProps = {
   result: UrlAnalysisResponse | null;
+  availability: WebsiteAvailability | null;
   messageResult: MessageAnalysisResponse | null;
   error: string;
   loading: boolean;
@@ -18,10 +19,20 @@ type InvestigationResultsProps = {
   setRiskEvidenceOpen: (open: boolean) => void;
 };
 
-export function InvestigationResults({ result, messageResult, error, loading, detailedOpen, setDetailedOpen, riskEvidenceOpen, setRiskEvidenceOpen }: InvestigationResultsProps) {
+export function InvestigationResults({ result, availability, messageResult, error, loading, detailedOpen, setDetailedOpen, riskEvidenceOpen, setRiskEvidenceOpen }: InvestigationResultsProps) {
 
   return <>
-        {error && <ErrorState message={error} />}
+        {availability && <section className={`availability-card availability-${availability.status}`} role="status" aria-live="polite">
+          <div className="availability-icon" aria-hidden="true">{availability.status === "not_found" ? "?" : "!"}</div>
+          <div className="availability-copy">
+            <p className="eyebrow">WEBSITE AVAILABILITY</p>
+            <h2>{availability.status === "not_found" ? "Website not found" : availability.status === "unreachable" ? "Website unreachable" : "Availability check failed"}</h2>
+            <strong className="availability-domain">{availability.domain}</strong>
+            <p>{availability.status === "not_found" ? "The domain could not be resolved. Check the URL and try again." : availability.status === "unreachable" ? "The domain exists, but the server could not be reached. This does not by itself indicate that the website is malicious." : "Website availability could not be determined. Retry the check."}</p>
+            <p className="availability-detail">{availability.details}</p>
+          </div>
+        </section>}
+        {error && !availability && <ErrorState message={error} />}
 
         {loading && <LoadingState />}
 
@@ -86,7 +97,7 @@ export function InvestigationResults({ result, messageResult, error, loading, de
           </section>
         )}
 
-        {!result && !messageResult && !loading && !error && <EmptyState />}
+        {!result && !messageResult && !availability && !loading && !error && <EmptyState />}
 
         {result && <UrlInvestigationReport result={result} detailedOpen={detailedOpen} setDetailedOpen={setDetailedOpen} riskEvidenceOpen={riskEvidenceOpen} setRiskEvidenceOpen={setRiskEvidenceOpen} />}
   </>;

@@ -6,10 +6,11 @@ from app.analyzers.dns import DnsAnalyzer
 from app.analyzers.http import HttpAnalyzer
 from app.analyzers.message import MAX_MESSAGE_LENGTH, MessageAnalyzer
 from app.analyzers.phishing import PhishingAnalyzer
+from app.analyzers.reachability import UrlReachabilityChecker
 from app.analyzers.tls import TlsAnalyzer
 from app.analyzers.url import UrlAnalyzer
 from app.config import frontend_origins, load_environment
-from app.models.analysis import UrlAnalysisResponse
+from app.models.analysis import UrlAnalysisResponse, UrlAvailabilityResponse, WebsiteAvailability
 from app.models.message import AIExplanation, MessageAnalysisRequest, MessageAnalysisResponse
 from app.models.url import UrlAnalysisRequest
 from app.scoring.risk import RiskScorer
@@ -30,6 +31,7 @@ dns_analyzer = DnsAnalyzer()
 phishing_analyzer = PhishingAnalyzer()
 tls_analyzer = TlsAnalyzer()
 http_analyzer = HttpAnalyzer()
+reachability_checker = UrlReachabilityChecker()
 risk_scorer = RiskScorer()
 threat_intel_provider = UrlhausProvider()
 message_analyzer = MessageAnalyzer()
@@ -41,13 +43,24 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/v1/analyze/url", response_model=UrlAnalysisResponse)
-def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse:
+@app.post("/api/v1/analyze/url", response_model=UrlAnalysisResponse | UrlAvailabilityResponse)
+def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse | UrlAvailabilityResponse:
     url_analysis = url_analyzer.analyze(request.url)
     if not url_analysis.is_valid:
         raise HTTPException(status_code=422, detail=url_analysis.validation_error)
     if url_analysis.hostname is None:
         raise HTTPException(status_code=422, detail="URL must include a hostname.")
+
+    reachability = reachability_checker.check(
+        url_analysis.normalized_url or request.url, url_analysis.hostname
+    )
+    availability = WebsiteAvailability(
+        status=reachability.status, message=reachability.message,
+        details=reachability.details, domain=url_analysis.hostname,
+        http_status=reachability.http_status,
+    )
+    if reachability.status != "reachable":
+        return UrlAvailabilityResponse(availability=availability)
 
     dns_analysis = dns_analyzer.analyze(url_analysis.hostname)
     phishing_analysis = phishing_analyzer.analyze(url_analysis)
@@ -65,6 +78,7 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse:
         http_analysis=http_analysis,
     )
     return UrlAnalysisResponse(
+        availability=availability,
         url_analysis=url_analysis,
         dns_analysis=dns_analysis,
         phishing_analysis=phishing_analysis,

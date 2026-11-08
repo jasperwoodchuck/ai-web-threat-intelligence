@@ -25,6 +25,7 @@ function App() {
       />
       <InvestigationResults
         result={investigation.result}
+        availability={investigation.availability}
         messageResult={investigation.messageResult}
         error={investigation.error}
         loading={investigation.loading}

@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { analysisApiBaseUrl, apiUrl, isProductionApiConfigured } from "../lib/api";
-import type { AnalysisMode, MessageAnalysisResponse, UrlAnalysisResponse } from "../types/investigation";
+import type { AnalysisMode, MessageAnalysisResponse, UrlAnalysisResponse, WebsiteAvailability } from "../types/investigation";
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
 
@@ -60,6 +60,7 @@ export function useInvestigation() {
   const [message, setMessage] = useState("");
   const [messageResult, setMessageResult] = useState<MessageAnalysisResponse | null>(null);
   const [result, setResult] = useState<UrlAnalysisResponse | null>(null);
+  const [availability, setAvailability] = useState<WebsiteAvailability | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [detailedOpen, setDetailedOpen] = useState(false);
@@ -72,6 +73,7 @@ export function useInvestigation() {
     setError("");
     setResult(null);
     setMessageResult(null);
+    setAvailability(null);
   }
 
   async function analyze(event: FormEvent<HTMLFormElement>) {
@@ -81,6 +83,7 @@ export function useInvestigation() {
     setError("");
     setResult(null);
     setMessageResult(null);
+    setAvailability(null);
     setDetailedOpen(false);
     setRiskEvidenceOpen(false);
 
@@ -120,6 +123,15 @@ export function useInvestigation() {
       if (!response.ok) {
         throw new AnalysisClientError(httpErrorMessage(response.status, payload));
       }
+      if (mode === "url" && isRecord(payload) && isRecord(payload.availability)) {
+        const status = payload.availability.status;
+        if (["not_found", "unreachable", "error"].includes(String(status))) {
+          setAvailability(payload.availability as unknown as WebsiteAvailability);
+          if (status === "error") setError("Website availability could not be determined. Please retry the analysis.");
+          analysisLog("completed", { mode, status });
+          return;
+        }
+      }
       if (!expectedResponse(payload, mode)) {
         throw new AnalysisClientError("Analysis service returned an unexpected response.");
       }
@@ -146,7 +158,7 @@ export function useInvestigation() {
   }
 
   return {
-    mode, selectMode, url, setUrl, message, setMessage, messageResult, result, error, loading,
+    mode, selectMode, url, setUrl, message, setMessage, messageResult, result, availability, error, loading,
     detailedOpen, setDetailedOpen, riskEvidenceOpen, setRiskEvidenceOpen, analyze,
     apiBaseUrl: analysisApiBaseUrl,
   };
