@@ -7,7 +7,7 @@ from starlette.datastructures import Headers, UploadFile
 from pypdf import PdfWriter
 
 from app import main
-from app.ai.openrouter import ModelCapabilityError, ModelResponseError
+from app.ai.openrouter import ModelCapabilityError, ModelResponseError, ProviderRateLimitError
 from app.models.message import AIExplanation, MessageAnalysisRequest
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
@@ -91,6 +91,19 @@ def test_image_ai_failure_status_is_preserved_in_result(monkeypatch, failure, ex
     assert body["ai_explanation"]["status"] == expected_status
     assert body["content_type"] == "unknown"
     assert body["extracted_text"] == ""
+
+
+def test_rate_limited_image_returns_structured_unavailable_and_keeps_security_result(monkeypatch) -> None:
+    def fail(*_args):
+        raise ProviderRateLimitError("rate limited", status=429, retry_after="2", kind="rate_limited")
+    monkeypatch.setattr(main.ai_provider, "inspect_image", fail)
+    body = json.loads(main.analyze_file(_upload("evidence.jpg", b"\xff\xd8\xffsample", "image/jpeg")).body)
+    assert body["ai_explanation"]["status"] == "unavailable"
+    assert body["ai_explanation"]["summary"] is None
+    assert body["ai_explanation"]["suspicious_indicators"] == []
+    assert any("rate limited (HTTP 429)" in item for item in body["limitations"])
+    assert body["risk_assessment"] is not None
+    assert body["deterministic_indicators"] == []
 
 
 def test_unsupported_and_oversized_files_return_useful_statuses() -> None:

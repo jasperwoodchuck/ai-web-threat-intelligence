@@ -69,3 +69,29 @@ test("malformed AI output is distinguished from provider unavailability", () => 
   expect(markup).toContain("did not match the expected schema");
   expect(markup).toContain('aria-label="AI interpretation: Malformed. View analysis details."');
 });
+
+test("rate-limited image analysis is shown as unavailable in the file result", () => {
+  const fileResult = {
+    filename: "evidence.png", media_type: "image/png", size_bytes: 12, sha256: "a".repeat(64),
+    extracted_text: "", content_type: "unknown", classification_confidence: 0,
+    classification_reasoning: "", summary: "Image analysis is unavailable.", key_findings: [],
+    recommended_action: "Review the image manually.", indicators: [],
+    limitations: ["OpenRouter image analysis was rate limited (HTTP 429); OCR and visual analysis are unavailable."],
+    extracted_urls: [], deterministic_indicators: [], url_threat_intelligence: [],
+    risk_assessment: {
+      classification: "Inconclusive", score: 0, confidence: 0.35,
+      contributing_indicators: [], recommended_precautions: [], limitations: [],
+    },
+    ai_explanation: {
+      status: "unavailable", summary: null, suspicious_indicators: [], evidence: [],
+      recommended_actions: [], limitations: ["OpenRouter image analysis was rate limited (HTTP 429)."],
+      confidence: null, advisory_note: "AI interpretation is advisory and is not verified threat intelligence.",
+    },
+  } as const;
+  const markup = renderToStaticMarkup(
+    createElement(AnalysisResult, { result: fileResult, detailedOpen: false, onDetailedToggle: () => {} }),
+  );
+  expect(markup).toContain("Unavailable</span>");
+  expect(markup).toContain("Image analysis is unavailable.");
+  expect(markup).toContain("AI overview: Unavailable");
+});

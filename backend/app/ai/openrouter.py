@@ -6,6 +6,9 @@ import logging
 import math
 import os
 import re
+import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -14,6 +17,8 @@ from app.models.message import AIExplanation
 
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_REQUEST_TIMEOUT_SECONDS = 90.0
+IMAGE_ANALYSIS_MAX_ATTEMPTS = 2
+IMAGE_ANALYSIS_MAX_RETRY_WAIT_SECONDS = 1.5
 logger = logging.getLogger(__name__)
 
 INTERPRETATION_PROPERTIES = {
@@ -177,6 +182,37 @@ class ModelResponseError(RuntimeError):
     """The configured model returned malformed structured analysis."""
 
 
+class ProviderRequestError(RuntimeError):
+    """A provider request failed with safe, structured diagnostic metadata."""
+
+    def __init__(self, message: str, *, status: int | None = None, retry_after: str | None = None, kind: str = "provider_error") -> None:
+        super().__init__(message)
+        self.provider = "openrouter"
+        self.operation = "image_analysis"
+        self.status = status
+        self.retry_after = retry_after
+        self.kind = kind
+
+
+class ProviderRateLimitError(ProviderRequestError):
+    """OpenRouter rejected the image-analysis request due to rate limiting."""
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(value)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+
 class OpenRouterProvider(AIProvider):
     def __init__(
         self,
@@ -273,7 +309,7 @@ class OpenRouterProvider(AIProvider):
     def inspect_image(self, image: bytes, media_type: str) -> dict[str, object]:
         """Use the configured model for OCR, classification, and visual analysis."""
         if not self.api_key or not self.model:
-            raise RuntimeError("Image analysis is not configured.")
+            raise ProviderRequestError("Image analysis is not configured.", kind="configuration")
         encoded = base64.b64encode(image).decode("ascii")
         body = json.dumps({
             "model": self.model,
@@ -289,26 +325,43 @@ class OpenRouterProvider(AIProvider):
             ],
         }).encode()
         request = Request(ENDPOINT, data=body, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "Accept": "application/json"}, method="POST")
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                payload = _read_openrouter_response(response, "image_analysis", 512_000)
-        except HTTPError as exc:
-            logger.warning("OpenRouter HTTP failure operation=image_analysis status=%s content_type=%s", exc.code, _content_type(exc))
-            provider_error = exc.read(4_096).decode("utf-8", errors="replace").lower()
-            capability_rejection = exc.code in (400, 422) and any(
-                term in provider_error for term in ("image", "vision", "multimodal", "modality")
-            ) and any(term in provider_error for term in ("unsupported", "not support", "does not support", "cannot accept"))
-            if capability_rejection:
-                raise ModelCapabilityError("Configured model does not support image input.") from exc
-            raise RuntimeError("Image analysis provider failed.") from exc
-        except (URLError, TimeoutError, OSError) as exc:
-            logger.warning("OpenRouter request failed operation=image_analysis error_type=%s", type(exc).__name__)
-            raise RuntimeError("Image analysis provider failed.") from exc
-        except ModelResponseError as exc:
-            logger.warning("OpenRouter structured output invalid operation=image_analysis reason=%s", exc)
-            raise
-        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise ModelResponseError("Image analysis returned malformed structured output.") from exc
+        payload: object
+        for attempt in range(1, IMAGE_ANALYSIS_MAX_ATTEMPTS + 1):
+            try:
+                with urlopen(request, timeout=self.timeout) as response:
+                    payload = _read_openrouter_response(response, "image_analysis", 512_000)
+                break
+            except HTTPError as exc:
+                retry_value = exc.headers.get("Retry-After") if exc.headers else None
+                logger.warning(
+                    "OpenRouter HTTP failure operation=image_analysis provider=openrouter status=%s content_type=%s retry_after=%s attempt=%s max_attempts=%s model=%s",
+                    exc.code, _content_type(exc), retry_value, attempt, IMAGE_ANALYSIS_MAX_ATTEMPTS, self.model,
+                )
+                provider_error = exc.read(4_096).decode("utf-8", errors="replace").lower()
+                capability_rejection = exc.code in (400, 422) and any(
+                    term in provider_error for term in ("image", "vision", "multimodal", "modality")
+                ) and any(term in provider_error for term in ("unsupported", "not support", "does not support", "cannot accept"))
+                if capability_rejection:
+                    raise ModelCapabilityError("Configured model does not support image input.") from exc
+                if exc.code == 429:
+                    wait = _retry_after_seconds(retry_value)
+                    if wait is None:
+                        wait = min(0.25 * (2 ** (attempt - 1)), IMAGE_ANALYSIS_MAX_RETRY_WAIT_SECONDS)
+                    wait = min(wait, IMAGE_ANALYSIS_MAX_RETRY_WAIT_SECONDS)
+                    if attempt < IMAGE_ANALYSIS_MAX_ATTEMPTS and wait > 0:
+                        logger.info("OpenRouter image analysis rate limit retry operation=image_analysis attempt=%s max_attempts=%s wait_seconds=%.3f", attempt, IMAGE_ANALYSIS_MAX_ATTEMPTS, wait)
+                        time.sleep(wait)
+                        continue
+                    raise ProviderRateLimitError("OpenRouter image analysis was rate limited.", status=429, retry_after=retry_value, kind="rate_limited") from exc
+                kinds = {400: "invalid_request", 401: "authentication", 403: "authorization", 408: "timeout", 422: "invalid_request"}
+                raise ProviderRequestError("OpenRouter image analysis request failed.", status=exc.code, kind=kinds.get(exc.code, "provider_error")) from exc
+            except (URLError, TimeoutError, OSError) as exc:
+                timed_out = isinstance(exc, TimeoutError) or (isinstance(exc, URLError) and isinstance(exc.reason, TimeoutError))
+                kind = "timeout" if timed_out else "network_error"
+                logger.warning("OpenRouter request failed operation=image_analysis provider=openrouter kind=%s error_type=%s attempt=%s max_attempts=%s model=%s", kind, type(exc).__name__, attempt, IMAGE_ANALYSIS_MAX_ATTEMPTS, self.model)
+                raise ProviderRequestError("OpenRouter image analysis could not be completed.", kind=kind) from exc
+        else:  # pragma: no cover - loop always exits or raises
+            raise ProviderRequestError("OpenRouter image analysis could not be completed.")
         try:
             result = self._parse_file_result(payload, image_text=True)
             logger.info("OpenRouter structured output parsed operation=image_analysis status=available")

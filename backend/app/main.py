@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.ai.openrouter import ModelCapabilityError, ModelResponseError, OpenRouterProvider
+from app.ai.openrouter import ModelCapabilityError, ModelResponseError, OpenRouterProvider, ProviderRequestError
 from app.analyzers.dns import DnsAnalyzer
 from app.analyzers.http import HttpAnalyzer
 from app.analyzers.message import MAX_MESSAGE_LENGTH, MessageAnalyzer
@@ -287,17 +287,37 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
             }
             ai_explanation = AIExplanation(status="malformed", limitations=[str(exc)])
         except Exception as exc:
-            logger.warning("image analysis provider failed error_type=%s", type(exc).__name__)
+            if isinstance(exc, ProviderRequestError):
+                logger.warning(
+                    "image analysis provider failed provider=%s operation=%s kind=%s status=%s retry_after=%s model=%s error_type=%s",
+                    exc.provider, exc.operation, exc.kind, exc.status, exc.retry_after,
+                    ai_provider.model, type(exc).__name__,
+                )
+                if exc.kind == "rate_limited":
+                    limitation = "OpenRouter image analysis was rate limited (HTTP 429); OCR and visual analysis are unavailable."
+                elif exc.status in (401, 403):
+                    limitation = "OpenRouter image analysis is unavailable because provider authentication or authorization failed."
+                elif exc.status == 400:
+                    limitation = "OpenRouter image analysis is unavailable because the provider rejected the request."
+                elif exc.kind == "timeout":
+                    limitation = "OpenRouter image analysis timed out; OCR and visual analysis are unavailable."
+                elif exc.kind == "network_error":
+                    limitation = "OpenRouter could not be reached; OCR and visual analysis are unavailable."
+                else:
+                    limitation = "OpenRouter image analysis is unavailable; OCR and visual analysis were not returned."
+            else:
+                logger.warning("image analysis provider failed operation=image_analysis provider=openrouter error_type=%s", type(exc).__name__)
+                limitation = "Image OCR and visual analysis are unavailable because the AI provider failed."
             ai_result = {
                 "extracted_text": "", "content_type": "unknown", "classification_confidence": 0,
                 "classification_reasoning": "Image interpretation could not be completed.",
-                "summary": "AI interpretation is unavailable; no OCR or visual observations were returned.",
+                "summary": "Image analysis is unavailable.",
                 "indicators": [], "recommended_action": "Review the image manually and retry the analysis.",
                 "limitations": [],
             }
             ai_explanation = AIExplanation(
                 status="unavailable",
-                limitations=["Image OCR and visual analysis are unavailable because the AI provider failed."],
+                limitations=[limitation],
             )
     elif media_type == "text/plain":
         try:

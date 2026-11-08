@@ -335,7 +335,9 @@ function AiOverviewCard({ overview }: { overview: AIExplanation }) {
       ? "OpenRouter returned output that did not match the expected schema. See AI details for the validation reason."
       : overview.status === "not_requested"
         ? "AI interpretation was not requested for this content."
-        : "AI interpretation is unavailable. Review the security checks and evidence.";
+        : overview.limitations.some((item) => /image analysis|image OCR/i.test(item))
+          ? "Image analysis is unavailable. Review the available security checks and evidence."
+          : "AI interpretation is unavailable. Review the security checks and evidence.";
   const detailsAvailable = hasAIAdditionalDetails(overview);
   const content = (
     <div className="ai-overview-expanded">

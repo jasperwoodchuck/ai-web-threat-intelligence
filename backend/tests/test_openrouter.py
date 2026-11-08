@@ -1,9 +1,10 @@
 import io
 import json
 import logging
+import pytest
 from urllib.error import HTTPError, URLError
 
-from app.ai.openrouter import OpenRouterProvider
+from app.ai.openrouter import ModelResponseError, OpenRouterProvider, ProviderRateLimitError, ProviderRequestError
 
 
 class Response(io.BytesIO):
@@ -181,3 +182,67 @@ def test_image_and_text_inspection_use_same_configured_model(monkeypatch) -> Non
     assert ai.inspect_text("Visible notice")["content_type"] == "notification"
     assert ai.inspect_image(bytes([137, 80, 78, 71, 13, 10, 26, 10]), "image/png")["content_type"] == "notification"
     assert captured_models == ["shared-model", "shared-model"]
+
+
+def _image_error(code: int, headers: dict[str, str] | None = None):
+    return HTTPError("https://openrouter.ai/api/v1/chat/completions", code, "provider failure", headers or {}, io.BytesIO(b"provider error"))
+
+
+def test_image_analysis_200(monkeypatch) -> None:
+    mock_response(monkeypatch, json.dumps({
+        "extracted_text": "Visible notice", "content_type": "notification", "classification_confidence": 0.8,
+        "classification_reasoning": "Notification", "summary": "Notice", "indicators": [],
+        "recommended_action": "Verify independently", "limitations": [],
+    }))
+    assert provider().inspect_image(b"image", "image/png")["extracted_text"] == "Visible notice"
+
+
+def test_image_rate_limit_retries_once_and_honors_bounded_retry_after(monkeypatch, caplog) -> None:
+    calls, waits = [], []
+    def request(*_args, **_kwargs):
+        calls.append(1)
+        raise _image_error(429, {"Retry-After": "30", "Content-Type": "application/json"})
+    monkeypatch.setattr("app.ai.openrouter.urlopen", request)
+    monkeypatch.setattr("app.ai.openrouter.time.sleep", waits.append)
+    caplog.set_level(logging.WARNING, logger="app.ai.openrouter")
+    with pytest.raises(ProviderRateLimitError) as error:
+        provider().inspect_image(b"image", "image/png")
+    assert len(calls) == 2
+    assert waits == [1.5]
+    assert error.value.status == 429 and error.value.retry_after == "30"
+    assert "operation=image_analysis" in caplog.text and "max_attempts=2" in caplog.text
+    assert "test-secret-key" not in caplog.text
+
+
+def test_image_rate_limit_without_retry_after_uses_bounded_backoff(monkeypatch) -> None:
+    calls, waits = [], []
+    def request(*_args, **_kwargs):
+        calls.append(1)
+        raise _image_error(429)
+    monkeypatch.setattr("app.ai.openrouter.urlopen", request)
+    monkeypatch.setattr("app.ai.openrouter.time.sleep", waits.append)
+    with pytest.raises(ProviderRateLimitError):
+        provider().inspect_image(b"image", "image/png")
+    assert len(calls) == 2 and waits == [0.25]
+
+
+@pytest.mark.parametrize(("status", "kind"), [(401, "authentication"), (403, "authorization"), (400, "invalid_request"), (500, "provider_error")])
+def test_image_http_failures_are_structured(monkeypatch, status, kind) -> None:
+    monkeypatch.setattr("app.ai.openrouter.urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(_image_error(status)))
+    with pytest.raises(ProviderRequestError) as error:
+        provider().inspect_image(b"image", "image/png")
+    assert error.value.status == status and error.value.kind == kind
+
+
+def test_image_timeout_and_network_failure_are_distinguished(monkeypatch) -> None:
+    for failure, kind in [(TimeoutError("timed out"), "timeout"), (URLError("offline"), "network_error")]:
+        monkeypatch.setattr("app.ai.openrouter.urlopen", lambda *_args, failure=failure, **_kwargs: (_ for _ in ()).throw(failure))
+        with pytest.raises(ProviderRequestError) as error:
+            provider().inspect_image(b"image", "image/png")
+        assert error.value.kind == kind
+
+
+def test_image_malformed_response_is_a_parsing_error(monkeypatch) -> None:
+    mock_response(monkeypatch, "not-json")
+    with pytest.raises(ModelResponseError):
+        provider().inspect_image(b"image", "image/png")
