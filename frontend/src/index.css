@@ -1,8 +1,9 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
 
 :root {
   --font-ui: "DM Sans", "Avenir Next", Inter, ui-sans-serif, system-ui, sans-serif;
   --font-display: "Manrope", "Avenir Next", Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: light;
   font-family: var(--font-ui);
   color: var(--text-body);
@@ -106,6 +107,7 @@ html, body, #root { width: 100%; margin: 0; padding: 0; }
 html { min-width: 320px; min-height: 100%; }
 body { min-width: 320px; min-height: 100vh; background: var(--surface-page); }
 button, input, textarea { font: inherit; }
+code, kbd, samp, pre { font-family: var(--font-mono); }
 h1, h2, h3, h4, .brand { font-family: var(--font-display); }
 button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid var(--accent-focus); outline-offset: 2px; }
 ::selection { background: rgba(46, 179, 190, .2); color: var(--text-heading); }
