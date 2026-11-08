@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { Badge } from "../ui/Badge";
 import type {
   FileAnalysisResponse,
@@ -11,6 +11,7 @@ import type {
 } from "../../types/investigation";
 import { httpStatusText, keyFindings, toneForRisk } from "../../lib/analysis";
 import { DetailPanel, EvidenceList, KeyValueGrid, ValueList } from "./ResultPrimitives";
+import { AnalysisDetailModal, type AnalysisCardDetail } from "./AnalysisDetailModal";
 
 const MIN_CLASSIFICATION_CONFIDENCE = 0.6;
 
@@ -18,6 +19,40 @@ function toneForIndicator(severity: string): Tone {
   if (["critical", "high"].includes(severity.toLowerCase())) return "danger";
   if (severity.toLowerCase() === "medium") return "warning";
   return "info";
+}
+
+function hasAdditionalDetails(data: unknown): boolean {
+  if (data === null || data === undefined) return false;
+  if (typeof data === "string") return data.trim().length > 0;
+  if (Array.isArray(data)) return data.some(hasAdditionalDetails);
+  if (typeof data === "object") return Object.values(data).some(hasAdditionalDetails);
+  return true;
+}
+
+function aiStatusLabel(overview: AIExplanation): string {
+  return {
+    available: "Available",
+    unavailable: "Unavailable",
+    malformed: "Malformed",
+    not_requested: "Not requested",
+  }[overview.status];
+}
+
+function aiStatusTone(overview: AIExplanation): Tone {
+  if (overview.status === "available") return "info";
+  return overview.status === "not_requested" ? "neutral" : "warning";
+}
+
+function hasAIAdditionalDetails(overview: AIExplanation): boolean {
+  return Boolean(
+    overview.summary?.trim() ||
+      overview.suspicious_indicators.length ||
+      overview.evidence.length ||
+      overview.recommended_actions.length ||
+      overview.limitations.length ||
+      overview.confidence !== null ||
+      overview.advisory_note.trim(),
+  );
 }
 
 function unavailableAiOverview(note: string): AIExplanation {
@@ -52,6 +87,7 @@ function normalizeUrl(result: UrlAnalysisResponse): NormalizedAnalysisResult {
         title: "DNS",
         state: result.dns_analysis.resolution_succeeded ? "Resolved" : "Unavailable",
         detail: `${result.dns_analysis.ipv4_addresses.length + result.dns_analysis.ipv6_addresses.length} address records`,
+        details: result.dns_analysis,
         tone: result.dns_analysis.resolution_succeeded ? "good" : "warning",
       },
       {
@@ -62,6 +98,7 @@ function normalizeUrl(result: UrlAnalysisResponse): NormalizedAnalysisResult {
             ? "Not used"
             : "Unavailable",
         detail: result.tls_analysis.protocol_version ?? "Certificate check",
+        details: result.tls_analysis,
         tone: result.tls_analysis.certificate_verified ? "good" : "neutral",
       },
       {
@@ -69,6 +106,7 @@ function normalizeUrl(result: UrlAnalysisResponse): NormalizedAnalysisResult {
         state: result.http_analysis.request_successful ? "Received" : "Unavailable",
         detail:
           status === null ? "Response metadata" : `HTTP ${status} ${httpStatusText(status)}`.trim(),
+        details: result.http_analysis,
         tone: result.http_analysis.request_successful ? "good" : "warning",
       },
       {
@@ -80,6 +118,11 @@ function normalizeUrl(result: UrlAnalysisResponse): NormalizedAnalysisResult {
               ? "No match"
               : "Unavailable",
         detail: result.threat_intelligence.source,
+        details: {
+          threat_intelligence: result.threat_intelligence,
+          phishing_analysis: result.phishing_analysis,
+          typosquatting: result.typosquatting,
+        },
         tone:
           result.threat_intelligence.status === "matched"
             ? "danger"
@@ -91,6 +134,7 @@ function normalizeUrl(result: UrlAnalysisResponse): NormalizedAnalysisResult {
         title: "Phishing signals",
         state: result.phishing_analysis.is_suspicious ? "Signals found" : "No signal",
         detail: `${result.phishing_analysis.indicators.length} indicators`,
+        details: result.phishing_analysis,
         tone: result.phishing_analysis.is_suspicious ? "warning" : "good",
       },
     ],
@@ -101,6 +145,7 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
   const findings: SummaryFinding[] = result.deterministic_indicators.map((item) => ({
     title: item.description,
     detail: item.evidence,
+    details: item,
     tone: toneForIndicator(item.severity),
   }));
   for (const item of result.url_threat_intelligence) {
@@ -108,6 +153,7 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
       findings.push({
         title: "Threat intelligence match",
         detail: `${item.source} matched ${item.indicator}.`,
+        details: item,
         tone: "danger",
       });
   }
@@ -115,6 +161,7 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
     findings.push({
       title: item,
       detail: "Advisory AI observation; review the supporting evidence.",
+      details: result.ai_explanation,
       tone: "info",
     });
   const unique = findings
@@ -141,6 +188,12 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
           ? `${result.extracted_urls.length} found`
           : "None found",
         detail: "URLs are checked against reputation data only",
+        details: {
+          extracted_urls: result.extracted_urls,
+          url_threat_intelligence: result.url_threat_intelligence,
+          extracted_email_addresses: result.extracted_email_addresses,
+          extracted_phone_numbers: result.extracted_phone_numbers,
+        },
         tone: result.extracted_urls.length ? "warning" : "neutral",
       },
       {
@@ -149,6 +202,7 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
           ? "Detected"
           : "No signal",
         detail: "Deterministic text check",
+        details: result.deterministic_indicators.filter((item) => item.category === "urgency"),
         tone: result.deterministic_indicators.some((item) => item.category === "urgency")
           ? "warning"
           : "good",
@@ -159,6 +213,7 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
           ? "Possible"
           : "No signal",
         detail: "Claim not independently verified",
+        details: result.deterministic_indicators.filter((item) => item.category === "impersonation"),
         tone: result.deterministic_indicators.some((item) => item.category === "impersonation")
           ? "warning"
           : "good",
@@ -171,6 +226,9 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
           ? "Mentioned"
           : "None detected",
         detail: "Attachment contents are not provided in text mode",
+        details: result.deterministic_indicators.filter(
+          (item) => item.category === "attachment_reference",
+        ),
         tone: result.deterministic_indicators.some(
           (item) => item.category === "attachment_reference",
         )
@@ -179,9 +237,10 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
       },
       {
         title: "AI interpretation",
-        state: result.ai_explanation.status === "available" ? "Available" : "Unavailable",
+        state: aiStatusLabel(result.ai_explanation),
         detail: "Advisory",
-        tone: result.ai_explanation.status === "available" ? "info" : "warning",
+        details: hasAIAdditionalDetails(result.ai_explanation) ? result.ai_explanation : undefined,
+        tone: aiStatusTone(result.ai_explanation),
       },
     ],
   };
@@ -213,12 +272,18 @@ function normalizeFile(result: FileAnalysisResponse): NormalizedAnalysisResult {
             ? "Unknown"
             : result.content_type.replaceAll("_", " "),
         detail: `${Math.round(result.classification_confidence * 100)}% classification confidence`,
+        details: {
+          content_type: result.content_type,
+          classification_confidence: result.classification_confidence,
+          classification_reasoning: result.classification_reasoning,
+        },
         tone: result.classification_confidence < MIN_CLASSIFICATION_CONFIDENCE ? "neutral" : "info",
       },
       {
         title: "Text extraction",
         state: result.extracted_text ? "Text found" : "No text",
         detail: result.media_type.startsWith("image/") ? "OCR" : "Document extraction",
+        details: result.extracted_text || undefined,
         tone: result.extracted_text ? "good" : "neutral",
       },
       {
@@ -227,19 +292,30 @@ function normalizeFile(result: FileAnalysisResponse): NormalizedAnalysisResult {
           ? `${result.extracted_urls.length} found`
           : "None found",
         detail: "Reputation lookup in details",
+        details: hasAdditionalDetails({
+          extracted_urls: result.extracted_urls,
+          url_threat_intelligence: result.url_threat_intelligence,
+        })
+          ? {
+              extracted_urls: result.extracted_urls,
+              url_threat_intelligence: result.url_threat_intelligence,
+            }
+          : undefined,
         tone: result.extracted_urls.length ? "warning" : "neutral",
       },
       {
         title: "AI interpretation",
-        state: result.ai_explanation.status === "available" ? "Available" : "Unavailable",
+        state: aiStatusLabel(result.ai_explanation),
         detail: "Advisory",
-        tone: result.ai_explanation.status === "available" ? "info" : "warning",
+        details: hasAIAdditionalDetails(result.ai_explanation) ? result.ai_explanation : undefined,
+        tone: aiStatusTone(result.ai_explanation),
       },
     ],
   };
 }
 
 function AiOverviewCard({ overview }: { overview: AIExplanation }) {
+  const [detail, setDetail] = useState<AnalysisCardDetail | null>(null);
   const available = overview.status === "available";
   const statusLabel = {
     available: "Available",
@@ -254,10 +330,42 @@ function AiOverviewCard({ overview }: { overview: AIExplanation }) {
       : overview.status === "not_requested"
         ? "AI interpretation was not requested for this content."
         : "AI interpretation is unavailable. Review the security checks and evidence.";
-  return (
-    <details className="ai-overview-card">
-      <summary>
-        <div className="ai-overview-card-heading">
+  const detailsAvailable = hasAIAdditionalDetails(overview);
+  const content = (
+    <div className="ai-overview-expanded">
+      <p>{overview.advisory_note}</p>
+      {overview.summary && <p>{overview.summary}</p>}
+      {overview.confidence !== null && <p>Model confidence: {Math.round(overview.confidence * 100)}%</p>}
+      {overview.suspicious_indicators.length > 0 && (
+        <>
+          <h4>Observed indicators</h4>
+          <ValueList items={overview.suspicious_indicators} />
+        </>
+      )}
+      {overview.evidence.length > 0 && (
+        <>
+          <h4>Supporting evidence</h4>
+          <ValueList items={overview.evidence} />
+        </>
+      )}
+      {overview.recommended_actions.length > 0 && (
+        <>
+          <h4>Suggested actions</h4>
+          <ValueList items={overview.recommended_actions} />
+        </>
+      )}
+      {overview.limitations.length > 0 && (
+        <>
+          <h4>Limitations</h4>
+          <ValueList items={overview.limitations} />
+        </>
+      )}
+    </div>
+  );
+
+  const overviewContent = (
+    <>
+        <span className="ai-overview-card-heading">
           <span className="ai-advisory-mark" aria-hidden="true">
             ✦
           </span>
@@ -268,42 +376,128 @@ function AiOverviewCard({ overview }: { overview: AIExplanation }) {
           <Badge tone={available ? "info" : overview.status === "not_requested" ? "neutral" : "warning"}>
             {statusLabel}
           </Badge>
-        </div>
-        <p className="ai-overview-preview">{preview}</p>
-        <span className="ai-overview-expand">View AI details</span>
-      </summary>
-      <div className="ai-overview-expanded">
-        <p>{overview.advisory_note}</p>
-        {overview.suspicious_indicators.length > 0 && (
-          <>
-            <h4>Observed indicators</h4>
-            <ValueList items={overview.suspicious_indicators} />
-          </>
+          {detailsAvailable && (
+            <span className="analysis-expand-icon" aria-hidden="true" title="Open AI details">
+              ↗
+            </span>
+          )}
+        </span>
+        <span className="ai-overview-preview">{preview}</span>
+    </>
+  );
+
+  return (
+    <>
+      {detailsAvailable ? (
+        <button
+          className="ai-overview-card ai-overview-trigger"
+          type="button"
+          aria-haspopup="dialog"
+          aria-label={`AI overview: ${statusLabel}. Open interpretation details.`}
+          onClick={() => setDetail({ title: "AI interpretation", status: statusLabel, data: overview, content })}
+        >
+          {overviewContent}
+        </button>
+      ) : (
+        <div className="ai-overview-card">{overviewContent}</div>
+      )}
+      {detail && <AnalysisDetailModal detail={detail} onClose={() => setDetail(null)} />}
+    </>
+  );
+}
+
+function SecurityCheckCard({
+  check,
+  onOpen,
+}: {
+  check: NormalizedAnalysisResult["checks"][number];
+  onOpen: (detail: AnalysisCardDetail) => void;
+}) {
+  const detailsAvailable = hasAdditionalDetails(check.details);
+  const content = (
+    <>
+      <span className="overview-card-top">
+        <span className="overview-title">{check.title}</span>
+        {detailsAvailable && (
+          <span className="analysis-expand-icon" aria-hidden="true" title="Open details">
+            ↗
+          </span>
         )}
-        {overview.evidence.length > 0 && (
-          <>
-            <h4>Supporting evidence</h4>
-            <ValueList items={overview.evidence} />
-          </>
-        )}
-        {overview.recommended_actions.length > 0 && (
-          <>
-            <h4>Suggested actions</h4>
-            <ValueList items={overview.recommended_actions} />
-          </>
-        )}
-        {overview.limitations.length > 0 && (
-          <>
-            <h4>Limitations</h4>
-            <ValueList items={overview.limitations} />
-          </>
-        )}
-      </div>
-    </details>
+      </span>
+      <Badge tone={check.tone}>{check.state}</Badge>
+      <strong className="overview-metric">{check.detail}</strong>
+    </>
+  );
+
+  if (!detailsAvailable) return <div className="overview-card">{content}</div>;
+
+  return (
+    <button
+      className="overview-card overview-card-interactive"
+      type="button"
+      aria-haspopup="dialog"
+      aria-label={`${check.title}: ${check.state}. View analysis details.`}
+      onClick={() => onOpen({ title: check.title, status: check.state, data: check.details })}
+    >
+      {content}
+    </button>
+  );
+}
+
+function FindingCard({
+  finding,
+  onOpen,
+}: {
+  finding: SummaryFinding;
+  onOpen: (detail: AnalysisCardDetail) => void;
+}) {
+  const detailsAvailable = hasAdditionalDetails(finding.details);
+  const content = (
+    <>
+      <span className={`key-finding-mark mark-${finding.tone}`} aria-hidden="true">
+        {finding.tone === "good"
+          ? "✓"
+          : finding.tone === "danger" || finding.tone === "warning"
+            ? "!"
+            : "·"}
+      </span>
+      <span className="key-finding-copy">
+        <strong>{finding.title}</strong>
+        <span>{finding.detail}</span>
+      </span>
+      {detailsAvailable && (
+        <span className="analysis-expand-icon" aria-hidden="true" title="Open evidence">
+          ↗
+        </span>
+      )}
+    </>
+  );
+
+  return (
+    <li>
+      {detailsAvailable ? (
+        <button
+          className="key-finding key-finding-interactive"
+          type="button"
+          aria-haspopup="dialog"
+          aria-label={`${finding.title}. View supporting evidence.`}
+          onClick={() => onOpen({ title: finding.title, status: "Finding", data: finding.details })}
+        >
+          {content}
+        </button>
+      ) : (
+        <div className="key-finding">{content}</div>
+      )}
+    </li>
   );
 }
 
 function Summary({ result }: { result: NormalizedAnalysisResult }) {
+  const [selectedCheck, setSelectedCheck] = useState<AnalysisCardDetail | null>(null);
+  const closeDetail = useCallback(() => setSelectedCheck(null), []);
+  const openDetail = (detail: AnalysisCardDetail) => setSelectedCheck(detail);
+  const openRiskDetails = () =>
+    openDetail({ title: "Risk assessment", status: result.risk.classification, data: result.risk });
   const riskTone = toneForRisk(result.risk.classification);
   return (
     <>
@@ -317,7 +511,20 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
       )}
       <div className="analysis-summary-layout">
         <div className="analysis-summary-primary">
-          <section className={`risk-hero risk-${riskTone}`} aria-label="Overall risk summary">
+          <section
+            className={`risk-hero risk-${riskTone} risk-hero-interactive`}
+            role="button"
+            tabIndex={0}
+            aria-haspopup="dialog"
+            aria-label={`Overall verdict: ${result.risk.classification}. Open risk assessment details.`}
+            onClick={openRiskDetails}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openRiskDetails();
+              }
+            }}
+          >
             <div className="risk-main">
               <div className="risk-heading">
                 <div className="section-icon risk-icon" aria-hidden="true">
@@ -328,6 +535,9 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
                   <h2>{result.risk.classification}</h2>
                 </div>
                 <Badge tone={riskTone}>{result.risk.classification}</Badge>
+                <span className="analysis-expand-icon" aria-hidden="true" title="Open risk details">
+                  ↗
+                </span>
               </div>
               <div className="risk-meter-wrap">
                 <div className="risk-meter-label">
@@ -367,19 +577,7 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
             </div>
             <ul className="key-findings-list">
               {result.findings.slice(0, 4).map((item, index) => (
-                <li className="key-finding" key={`${item.title}-${index}`}>
-                  <span className={`key-finding-mark mark-${item.tone}`} aria-hidden="true">
-                    {item.tone === "good"
-                      ? "✓"
-                      : item.tone === "danger" || item.tone === "warning"
-                        ? "!"
-                        : "·"}
-                  </span>
-                  <span className="key-finding-copy">
-                    <strong>{item.title}</strong>
-                    <span>{item.detail}</span>
-                  </span>
-                </li>
+                <FindingCard finding={item} key={`${item.title}-${index}`} onOpen={openDetail} />
               ))}
             </ul>
           </section>
@@ -399,19 +597,14 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
             </div>
             <div className="overview-grid">
               {result.checks.map((check) => (
-                <div className="overview-card" key={check.title}>
-                  <div className="overview-card-top">
-                    <span className="overview-title">{check.title}</span>
-                  </div>
-                  <Badge tone={check.tone}>{check.state}</Badge>
-                  <strong className="overview-metric">{check.detail}</strong>
-                </div>
+                <SecurityCheckCard check={check} key={check.title} onOpen={openDetail} />
               ))}
             </div>
           </section>
         </div>
         <AiOverviewCard overview={result.aiOverview} />
       </div>
+      {selectedCheck && <AnalysisDetailModal detail={selectedCheck} onClose={closeDetail} />}
     </>
   );
 }
@@ -495,12 +688,24 @@ function UrlDetails({ result }: { result: UrlAnalysisResponse }) {
         <KeyValueGrid
           rows={[
             { label: "Request successful", value: result.http_analysis.request_successful },
+            { label: "Scheme", value: result.http_analysis.scheme },
+            { label: "Hostname", value: result.http_analysis.hostname },
+            { label: "Request method", value: result.http_analysis.request_method },
+            { label: "Response headers size", value: result.http_analysis.headers_size_bytes },
             { label: "Redirect detected", value: result.http_analysis.redirect_detected },
             { label: "Redirect status", value: result.http_analysis.redirect_status_code },
             { label: "Redirect destination", value: result.http_analysis.redirect_location },
             { label: "Final behavior", value: result.http_analysis.final_behavior },
             { label: "Error", value: result.http_analysis.error },
           ]}
+        />
+        <h4>HTTP and security headers</h4>
+        <KeyValueGrid
+          rows={Object.entries(result.http_analysis.security_headers).map(([label, value]) => ({
+            label,
+            value,
+            mono: true,
+          }))}
         />
         <EvidenceList
           items={result.risk_assessment.contributing_indicators.filter(
@@ -533,6 +738,7 @@ function UrlDetails({ result }: { result: UrlAnalysisResponse }) {
         title="Risk evidence and limitations"
         status={`${result.risk_assessment.contributing_indicators.length} signals`}
         summary="Scoring inputs and caveats"
+        detailsAvailable={result.risk_assessment.contributing_indicators.length > 0 || result.risk_assessment.limitations.length > 0}
       >
         <EvidenceList items={result.risk_assessment.contributing_indicators} />
         <h4>Limitations</h4>
@@ -549,6 +755,12 @@ function MessageDetails({ result }: { result: MessageAnalysisResponse }) {
         title="Extracted links and contacts"
         status={`${result.extracted_urls.length} links`}
         summary="Detected entities"
+        detailsAvailable={
+          result.extracted_urls.length > 0 ||
+          result.extracted_email_addresses.length > 0 ||
+          result.extracted_phone_numbers.length > 0 ||
+          result.url_threat_intelligence.length > 0
+        }
       >
         <h4>Links</h4>
         <ValueList items={result.extracted_urls} />
@@ -567,6 +779,7 @@ function MessageDetails({ result }: { result: MessageAnalysisResponse }) {
         title="Deterministic language checks"
         status={`${result.deterministic_indicators.length} signals`}
         summary="Rule-based observations"
+        detailsAvailable={result.deterministic_indicators.length > 0}
       >
         <ul className="result-list">
           {result.deterministic_indicators.map((item, index) => (
@@ -597,6 +810,10 @@ function MessageDetails({ result }: { result: MessageAnalysisResponse }) {
         title="Risk evidence"
         status={`${result.risk_assessment.contributing_indicators.length} signals`}
         summary="Scoring inputs"
+        detailsAvailable={
+          result.risk_assessment.contributing_indicators.length > 0 ||
+          result.risk_assessment.limitations.length > 0
+        }
       >
         <EvidenceList items={result.risk_assessment.contributing_indicators} />
         <ValueList items={result.risk_assessment.limitations} />
@@ -632,6 +849,7 @@ function FileDetails({ result }: { result: FileAnalysisResponse }) {
         title="OCR / extracted text"
         status={result.extracted_text ? "available" : "empty"}
         summary={`${result.extracted_text.length.toLocaleString()} characters`}
+        detailsAvailable={result.extracted_text.length > 0}
       >
         <pre className="ocr-output">{result.extracted_text || "No text was extracted."}</pre>
       </DetailPanel>
@@ -639,6 +857,11 @@ function FileDetails({ result }: { result: FileAnalysisResponse }) {
         title="Extracted links and deterministic checks"
         status={`${result.extracted_urls.length} links`}
         summary="Message-pattern signals"
+        detailsAvailable={
+          result.extracted_urls.length > 0 ||
+          result.deterministic_indicators.length > 0 ||
+          result.url_threat_intelligence.length > 0
+        }
       >
         <h4>Links</h4>
         <ValueList items={result.extracted_urls} />
@@ -678,6 +901,11 @@ function FileDetails({ result }: { result: FileAnalysisResponse }) {
         title="Risk evidence and recommendations"
         status={`${result.risk_assessment.contributing_indicators.length} signals`}
         summary="Scoring inputs"
+        detailsAvailable={
+          result.risk_assessment.contributing_indicators.length > 0 ||
+          result.ai_explanation.recommended_actions.length > 0 ||
+          result.risk_assessment.limitations.length > 0
+        }
       >
         <EvidenceList items={result.risk_assessment.contributing_indicators} />
         <h4>Recommended actions</h4>

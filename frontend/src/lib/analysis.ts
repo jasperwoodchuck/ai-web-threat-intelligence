@@ -53,6 +53,7 @@ export function keyFindings(result: UrlAnalysisResponse): SummaryFinding[] {
     add({
       title: "Possible typosquatting",
       detail: `${result.typosquatting.submitted_domain} resembles ${result.typosquatting.possible_intended_site}.`,
+      details: result.typosquatting,
       tone: "warning",
     });
   }
@@ -65,6 +66,7 @@ export function keyFindings(result: UrlAnalysisResponse): SummaryFinding[] {
     add({
       title: shortEvidenceTitle(item),
       detail: shortEvidenceDescription(item),
+      details: item,
       tone: item.weight < 0 ? "good" : "warning",
     });
   }
@@ -79,6 +81,7 @@ export function keyFindings(result: UrlAnalysisResponse): SummaryFinding[] {
           : threat.status === "unavailable"
             ? `${threat.source} could not be reached for a lookup.`
             : `${threat.source} reported a match${threat.threat_type ? `: ${threat.threat_type.replaceAll("_", " ")}` : "."}`,
+      details: threat,
       tone:
         threat.status === "matched"
           ? "danger"
@@ -94,18 +97,21 @@ export function keyFindings(result: UrlAnalysisResponse): SummaryFinding[] {
       add({
         title: "TLS",
         detail: "This URL uses HTTP, so a TLS check does not apply.",
+        details: tls,
         tone: "neutral",
       });
     } else if (tls.connection_successful && tls.certificate_verified === true) {
       add({
         title: "HTTPS transport",
         detail: `TLS connection and certificate verification succeeded${tls.protocol_version ? ` (${tls.protocol_version})` : ""}. This does not establish site legitimacy.`,
+        details: tls,
         tone: "good",
       });
     } else if (!tls.connection_successful) {
       add({
         title: "TLS check",
         detail: "The certificate connection could not be verified.",
+        details: tls,
         tone: "neutral",
       });
     }
@@ -118,6 +124,7 @@ export function keyFindings(result: UrlAnalysisResponse): SummaryFinding[] {
       detail: http.request_successful
         ? `Response metadata received${http.status_code === null ? "." : ` (HTTP ${http.status_code}${httpStatusText(http.status_code) ? ` ${httpStatusText(http.status_code)}` : ""}).`}`
         : "Response metadata could not be collected.",
+      details: http,
       tone: http.request_successful ? "good" : "neutral",
     });
   }

@@ -30,7 +30,7 @@ const messageResult = {
   limitations: [],
 };
 
-test("successful API AI interpretation reaches the overview card and its expanded details", () => {
+test("successful API AI interpretation reaches the overview card and exposes a detail action", () => {
   const markup = renderToStaticMarkup(
     createElement(AnalysisResult, {
       result: messageResult,
@@ -43,9 +43,8 @@ test("successful API AI interpretation reaches the overview card and its expande
   expect(markup).toContain("Available</span>");
   expect(markup).toContain("The message uses urgency to request account verification.");
   expect(markup).toContain("Urgent verification request");
-  expect(markup).toContain("The message asks the recipient to act immediately.");
-  expect(markup).toContain("Verify the sender through an official channel.");
-  expect(markup).toContain('<details class="ai-overview-card">');
+  expect(markup).toContain('<button class="ai-overview-card ai-overview-trigger"');
+  expect(markup).toContain('aria-label="AI interpretation: Available. View analysis details."');
 });
 
 test("malformed AI output is distinguished from provider unavailability", () => {
@@ -68,5 +67,5 @@ test("malformed AI output is distinguished from provider unavailability", () => 
 
   expect(markup).toContain("Malformed");
   expect(markup).toContain("did not match the expected schema");
-  expect(markup).toContain("required fields missing: summary");
+  expect(markup).toContain('aria-label="AI interpretation: Malformed. View analysis details."');
 });

@@ -248,12 +248,14 @@ export interface KeyValue {
 export interface SummaryFinding {
   title: string;
   detail: string;
+  details?: unknown;
   tone: Tone;
 }
 export interface NormalizedSecurityCheck {
   title: string;
   state: string;
   detail: string;
+  details?: unknown;
   tone: Tone;
 }
 export interface NormalizedAnalysisResult {

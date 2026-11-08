@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Badge as Pill } from "../ui/Badge";
 import type { KeyValue, RiskEvidence } from "../../types/investigation";
 import { displayValue } from "../../lib/formatters";
 import { statusTone } from "../../lib/analysis";
+import { AnalysisDetailModal, type AnalysisCardDetail } from "./AnalysisDetailModal";
 
 export function KeyValueGrid({ rows }: { rows: KeyValue[] }) {
   return (
@@ -36,35 +38,49 @@ export function DetailPanel({
   summary,
   children,
   className = "",
-  id,
-  open,
-  onToggle,
+  detailsAvailable = true,
 }: {
   title: string;
   status: string;
   summary: string;
   children: ReactNode;
   className?: string;
-  id?: string;
-  open?: boolean;
-  onToggle?: (open: boolean) => void;
+  detailsAvailable?: boolean;
 }) {
+  const [detail, setDetail] = useState<AnalysisCardDetail | null>(null);
+
   return (
-    <details
-      id={id}
-      className={`detail-panel ${className}`}
-      open={open}
-      onToggle={onToggle ? (event) => onToggle(event.currentTarget.open) : undefined}
-    >
-      <summary>
-        <span className="detail-title-block">
-          <span className="detail-title">{title}</span>
-          <span className="detail-summary">{summary}</span>
-        </span>
-        <Pill tone={statusTone(status)}>{status.replaceAll("_", " ")}</Pill>
-      </summary>
-      <div className="detail-content">{children}</div>
-    </details>
+    <>
+      {detailsAvailable ? (
+        <button
+          type="button"
+          className={`detail-panel detail-panel-trigger ${className}`}
+          aria-haspopup="dialog"
+          aria-label={`${title}: ${status}. Open details.`}
+          onClick={() =>
+            setDetail({ title, status, data: null, content: <div className="detail-content">{children}</div> })
+          }
+        >
+          <span className="detail-title-block">
+            <span className="detail-title">{title}</span>
+            <span className="detail-summary">{summary}</span>
+          </span>
+          <Pill tone={statusTone(status)}>{status.replaceAll("_", " ")}</Pill>
+          <span className="detail-panel-open" aria-hidden="true" title="Open details">
+            ↗
+          </span>
+        </button>
+      ) : (
+        <div className={`detail-panel detail-panel-static ${className}`}>
+          <span className="detail-title-block">
+            <span className="detail-title">{title}</span>
+            <span className="detail-summary">{summary}</span>
+          </span>
+          <Pill tone={statusTone(status)}>{status.replaceAll("_", " ")}</Pill>
+        </div>
+      )}
+      {detail && <AnalysisDetailModal detail={detail} onClose={() => setDetail(null)} />}
+    </>
   );
 }
 
