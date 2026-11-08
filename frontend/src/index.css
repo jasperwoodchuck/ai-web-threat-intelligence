@@ -109,3 +109,7 @@ button, input, textarea { font: inherit; }
 h1, h2, h3, h4, .brand { font-family: var(--font-display); }
 button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid var(--accent-focus); outline-offset: 2px; }
 ::selection { background: rgba(46, 179, 190, .2); color: var(--text-heading); }
+
+@media (prefers-reduced-motion: reduce) {
+  .security-glow { animation: none !important; will-change: auto; }
+}
