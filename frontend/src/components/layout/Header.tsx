@@ -1,5 +1,4 @@
 import type { Theme } from "../../types/investigation";
-import { StatusIndicator } from "../ui/StatusIndicator";
 
 interface HeaderProps { theme: Theme; onThemeChange: (theme: Theme) => void; }
 
@@ -13,7 +12,6 @@ export function Header({ theme, onThemeChange }: HeaderProps) {
         <span>Web Threat Intelligence</span>
       </a>
       <div className="topbar-actions">
-        <StatusIndicator label="Threat intelligence online" detail="Passive analysis engine ready" />
         <div className="theme-toggle" role="group" aria-label="Color theme">
           {(["light", "dark"] as Theme[]).map((option) => (
             <button key={option} type="button" aria-pressed={theme === option} onClick={() => onThemeChange(option)}>
