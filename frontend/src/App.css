@@ -244,6 +244,8 @@
 
 .message-report, .report { margin-top: 29px; }
 .message-report-heading, .report-heading { align-items: center; margin-bottom: 13px; }
+.report-heading { display: flex; justify-content: space-between; gap: 16px; }
+.report-heading .eyebrow { margin-bottom: 0; }
 .message-report-heading h2 { margin: 0; color: var(--text-heading); font-size: 22px; letter-spacing: -.035em; }
 .message-verdict { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 15px; padding: 18px 20px; border: 1px solid var(--border-default); border-radius: 0; background: linear-gradient(110deg, rgba(42, 136, 193, .1), var(--surface-card)); box-shadow: 0 10px 25px var(--shadow-color); }
 .message-verdict h3 { margin: 0; color: var(--text-heading); font-size: 22px; letter-spacing: -.03em; }
