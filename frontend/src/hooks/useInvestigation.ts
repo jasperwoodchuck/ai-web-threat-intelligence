@@ -85,6 +85,7 @@ function expectedResponse(
       Array.isArray(payload.extracted_urls) &&
       Array.isArray(payload.deterministic_indicators) &&
       Array.isArray(payload.url_threat_intelligence) &&
+      Array.isArray(payload.url_assessments) &&
       isRecord(payload.risk_assessment) &&
       isAIExplanation(payload.ai_explanation)
     );
@@ -93,7 +94,7 @@ function expectedResponse(
     ? isRecord(payload.url_analysis) &&
         isRecord(payload.threat_intelligence) &&
         (payload.ai_explanation === undefined || isAIExplanation(payload.ai_explanation))
-    : isAIExplanation(payload.ai_explanation) && Array.isArray(payload.deterministic_indicators);
+    : isAIExplanation(payload.ai_explanation) && Array.isArray(payload.deterministic_indicators) && Array.isArray(payload.url_assessments);
 }
 
 async function readJsonResponse(response: Response): Promise<unknown> {

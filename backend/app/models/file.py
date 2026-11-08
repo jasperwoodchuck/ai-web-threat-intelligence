@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.models.message import AIExplanation, MessageIndicator
+from app.models.message import AIExplanation, MessageIndicator, MessageURLAssessment
 from app.models.risk import RiskAssessment
 from app.threat_intel.base import ThreatIntelResult
 
@@ -30,5 +30,6 @@ class FileAnalysisResponse(BaseModel):
     extracted_urls: list[str] = Field(default_factory=list)
     deterministic_indicators: list[MessageIndicator] = Field(default_factory=list)
     url_threat_intelligence: list[ThreatIntelResult] = Field(default_factory=list)
+    url_assessments: list[MessageURLAssessment] = Field(default_factory=list)
     risk_assessment: RiskAssessment
     ai_explanation: AIExplanation

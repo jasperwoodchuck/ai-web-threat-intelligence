@@ -346,6 +346,14 @@ function AiOverviewCard({ overview }: { overview: AIExplanation }) {
       <p>{overview.advisory_note}</p>
       {overview.summary && <p>{overview.summary}</p>}
       {overview.confidence !== null && <p>Model confidence: {Math.round(overview.confidence * 100)}%</p>}
+      {overview.scam_assessment && (
+        <>
+          <h4>Semantic scam assessment</h4>
+          <p>{overview.scam_assessment.classification} · risk score {overview.scam_assessment.risk_score}/100 · confidence {Math.round(overview.scam_assessment.confidence * 100)}%</p>
+          <p>{overview.scam_assessment.reasoning}</p>
+          <ValueList items={overview.scam_assessment.signals.map((signal) => `${signal.severity}: ${signal.type} — ${signal.evidence}`)} />
+        </>
+      )}
       {overview.suspicious_indicators.length > 0 && (
         <>
           <h4>Observed indicators</h4>
@@ -788,6 +796,8 @@ function MessageDetails({ result }: { result: MessageAnalysisResponse }) {
             (item) => `${item.source}: ${item.status} · ${item.indicator}`,
           )}
         />
+        <h4>Separate URL analysis</h4>
+        <ValueList items={result.url_assessments.flatMap((item) => item.phishing_analysis.indicators.map((signal) => `${item.submitted_url}: ${signal.type} · ${signal.evidence}`))} />
       </DetailPanel>
       <DetailPanel
         title="Deterministic language checks"
@@ -894,6 +904,8 @@ function FileDetails({ result }: { result: FileAnalysisResponse }) {
             (item) => `${item.source}: ${item.status} · ${item.indicator}`,
           )}
         />
+        <h4>Separate URL analysis</h4>
+        <ValueList items={result.url_assessments.flatMap((item) => item.phishing_analysis.indicators.map((signal) => `${item.submitted_url}: ${signal.type} · ${signal.evidence}`))} />
       </DetailPanel>
       <DetailPanel
         title="Visual indicators and AI interpretation"

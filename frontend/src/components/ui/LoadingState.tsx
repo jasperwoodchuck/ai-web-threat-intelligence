@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 
 const STATUS_INTERVAL_MS = 3_000;
 const MAX_PENDING_PROGRESS = 92;
-const PROGRESS_STEP_PERCENT = 5;
+const MIN_PROGRESS_STEP_PERCENT = 1;
+const MAX_PROGRESS_STEP_PERCENT = 9;
 
 const ANALYSIS_STATUSES = [
   "Initializing security analysis...",
@@ -21,17 +22,21 @@ const ANALYSIS_STATUSES = [
 
 export function LoadingState() {
   const [elapsedSteps, setElapsedSteps] = useState(0);
+  const [progress, setProgress] = useState(5);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       setElapsedSteps((steps) => steps + 1);
+      const step =
+        MIN_PROGRESS_STEP_PERCENT +
+        Math.random() * (MAX_PROGRESS_STEP_PERCENT - MIN_PROGRESS_STEP_PERCENT);
+      setProgress((current) => Math.min(MAX_PENDING_PROGRESS, current + step));
     }, STATUS_INTERVAL_MS);
 
     return () => window.clearInterval(intervalId);
   }, []);
 
   const status = ANALYSIS_STATUSES[elapsedSteps] ?? "Finalizing analysis...";
-  const progress = Math.min(MAX_PENDING_PROGRESS, 5 + elapsedSteps * PROGRESS_STEP_PERCENT);
 
   return (
     <div className="loading-card" role="status" aria-live="polite">

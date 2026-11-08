@@ -21,7 +21,7 @@ from app.models.url import UrlAnalysisResult
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
 if TYPE_CHECKING:
-    from app.models.message import AIExplanation, MessageIndicator
+    from app.models.message import AIExplanation, MessageIndicator, MessageURLAssessment
 
 _URL_STRUCTURE_STRENGTHS = {
     "ip_hostname": 20,
@@ -498,31 +498,105 @@ class RiskScorer:
         indicators: list[MessageIndicator],
         intelligence: list[ThreatIntelResult],
         ai_explanation: AIExplanation,
+        url_assessments: list[MessageURLAssessment] | None = None,
     ) -> RiskAssessment:
-        """Score deterministic message and URL intelligence with the shared aggregation rules."""
-        strengths = {
-            "urgency": 10,
-            "payment_request": 20,
-            "credential_request": 25,
-            "sensitive_information_request": 20,
-            "impersonation": 22,
-            "suspicious_link_present": 10,
-            "attachment_reference": 6,
-        }
+        """Use semantic scam scoring as the base, then combine independently analyzed URLs."""
+        url_assessments = url_assessments or []
         signals: list[_RiskSignal] = []
         limitations = [
-            "Suspicious language is not proof of fraud.",
+            "The semantic message classification is advisory and may misinterpret context.",
             "Absence of a threat-intelligence match is not proof that the message is safe.",
-            "AI interpretation is advisory and cannot establish a verified threat.",
+            "The score is an evidence aggregation value, not a calibrated probability.",
         ]
         for item in indicators:
-            strength = strengths.get(item.category, 0)
             signals.append(_RiskSignal(
                 evidence=RiskEvidence(source="message_analysis", indicator=item.category, severity=item.severity, weight=0, description=item.description, evidence=item.evidence),
-                strength=strength,
+                strength=0,
                 correlation_group=("message_social_engineering" if item.category in {"urgency", "payment_request", "credential_request", "sensitive_information_request", "impersonation"} else f"message:{item.category}"),
                 order=0,
             ))
+
+        semantic = ai_explanation.scam_assessment if ai_explanation.status == "available" else None
+        semantic_score = semantic.risk_score if semantic is not None else 0
+        semantic_evidence = []
+        if semantic is not None:
+            semantic_evidence.append(RiskEvidence(
+                source="ai_semantic_analysis",
+                indicator="semantic_risk_score",
+                severity=semantic.classification,
+                weight=semantic_score,
+                description="Base score from structured semantic scam-intent analysis.",
+                evidence=(
+                    f"classification={semantic.classification}; confidence={semantic.confidence:.2f}; "
+                    f"scam_intent={semantic.has_scam_intent}; {semantic.reasoning[:1_000]}"
+                ),
+            ))
+            semantic_evidence.extend(
+                RiskEvidence(
+                    source="ai_semantic_analysis",
+                    indicator=item.type[:100],
+                    severity=item.severity,
+                    weight=0,
+                    description="Semantic signal reported by the AI classifier.",
+                    evidence=item.evidence[:1_000],
+                )
+                for item in semantic.signals[:12]
+            )
+        else:
+            limitations.extend(ai_explanation.limitations or ["Semantic AI assessment was unavailable."])
+
+        url_strengths = {
+            "typosquatting_domain": 45,
+            "brand_impersonation_domain": 35,
+            "ip_hostname": 22,
+            "embedded_username": 25,
+            "suspicious_encoding": 20,
+            "misleading_hostname_structure": 16,
+            "excessive_subdomains": 14,
+            "excessive_special_characters": 10,
+            "unusual_port": 8,
+            "long_hostname": 6,
+            "long_url": 6,
+            # Account/payment words in a URL are weak context, not proof of fraud.
+            "suspicious_keyword": 4,
+            "punycode_hostname": 0,
+        }
+        for index, assessment in enumerate(url_assessments):
+            url_key = assessment.url_analysis.normalized_url or assessment.submitted_url
+            url_group = f"message_url:{index}"
+            for item in assessment.phishing_analysis.indicators:
+                signals.append(_RiskSignal(
+                    evidence=RiskEvidence(
+                        source="url_phishing_analysis",
+                        indicator=item.type,
+                        severity=item.severity,
+                        weight=0,
+                        description=item.description,
+                        evidence=f"url={url_key}; {item.evidence}",
+                    ),
+                    strength=url_strengths.get(item.type, 0),
+                    correlation_group=url_group,
+                    order=1,
+                ))
+            fraud_result = assessment.phishing_analysis.fraudurl.result
+            fraud_probability = self._probability(fraud_result)
+            if assessment.phishing_analysis.fraudurl.status == "ok" and fraud_probability is not None:
+                fraud_strength = max(0, min(30, round((fraud_probability - 0.5) * 60)))
+                if fraud_strength:
+                    signals.append(_RiskSignal(
+                        evidence=RiskEvidence(
+                            source="url_fraud_model",
+                            indicator="fraudurl_probability",
+                            severity="high" if fraud_probability >= 0.8 else "medium",
+                            weight=0,
+                            description="The URL phishing model returned elevated fraud probability.",
+                            evidence=f"url={url_key}; fraud_probability={fraud_probability:.3f}",
+                        ),
+                        strength=fraud_strength,
+                        correlation_group=f"message_url_model:{index}",
+                        order=1,
+                    ))
+
         exact_match = False
         for result in intelligence:
             if result.status is ThreatIntelStatus.MATCHED and result.matched:
@@ -532,58 +606,52 @@ class RiskScorer:
                 strength = (_THREAT_EXACT_STRENGTH if exact else _THREAT_HOST_STRENGTH) * factor
                 description = "Threat intelligence has an exact match for a URL extracted from the message." if exact else "Threat intelligence associates a hostname extracted from the message with a reported threat."
                 detail = f"scope={result.match_scope}; threat={result.threat_type or 'unspecified'}; confidence={factor:.2f}; reference={result.reference or 'unavailable'}; checked_at={result.checked_at.isoformat()}"
-                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="known_malicious_url" if exact else "known_malicious_host", severity="critical" if exact else "high", weight=0, description=description, evidence=detail), strength=strength, correlation_group="message_threat_intelligence", order=1))
+                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="known_malicious_url" if exact else "known_malicious_host", severity="critical" if exact else "high", weight=0, description=description, evidence=detail), strength=strength, correlation_group=f"message_threat_intelligence:{result.indicator}", order=2))
             elif result.status is ThreatIntelStatus.NO_MATCH:
-                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="threat_intelligence_no_match", severity="info", weight=0, description="The provider returned no match; absence of a match is not evidence that the message is safe.", evidence=f"indicator={result.indicator}; checked_at={result.checked_at.isoformat()}"), order=1))
+                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="threat_intelligence_no_match", severity="info", weight=0, description="The provider returned no match; absence of a match is not evidence that the message is safe.", evidence=f"indicator={result.indicator}; checked_at={result.checked_at.isoformat()}"), order=2))
                 limitations.append(f"{result.source} returned no match for {result.indicator}; this does not establish safety.")
             else:
-                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="threat_intelligence_unavailable", severity="info", weight=0, description="Threat intelligence was unavailable; provider failure adds no risk points.", evidence=result.error or result.indicator), order=1))
+                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="threat_intelligence_unavailable", severity="info", weight=0, description="Threat intelligence was unavailable; provider failure adds no risk points.", evidence=result.error or result.indicator), order=2))
                 limitations.append(f"{result.source} was unavailable for an extracted URL.")
         if not intelligence:
             limitations.append("No URL threat-intelligence checks were available.")
-        if ai_explanation.status != "available":
-            limitations.extend(ai_explanation.limitations or ["AI explanation was unavailable."])
+        if not url_assessments:
+            limitations.append("No URL evidence was included in the risk score because no URL was extracted.")
         else:
-            ai_findings = list(dict.fromkeys(
-                item.strip()[:500]
-                for item in ai_explanation.suspicious_indicators
-                if item.strip()
-            ))[:4]
-            for finding in ai_findings:
-                confidence_note = (
-                    f"; model_confidence={ai_explanation.confidence:.2f}"
-                    if ai_explanation.confidence is not None
-                    else ""
+            limitations.append("URLs were analyzed separately; the submitted URL targets were not fetched and redirects were not followed.")
+        url_evidence, score = self._aggregate(signals, initial_score=semantic_score)
+        evidence = semantic_evidence + url_evidence
+        classification = (
+            RiskClassification.CONFIRMED_MALICIOUS
+            if exact_match and score >= _CONFIRMED_SCORE_THRESHOLD
+            else self._classify_message(score)
+        )
+        confidence = semantic.confidence if semantic is not None else 0.35
+        if url_assessments:
+            url_coverage = sum(
+                (
+                    1.0 if item.phishing_analysis.fraudurl.status in {"ok", "skipped"} else 0.0
+                ) + (
+                    sum(result.status is not ThreatIntelStatus.UNAVAILABLE for result in item.threat_intelligence)
+                    / max(1, len(item.threat_intelligence))
+                    if item.threat_intelligence else 0.0
                 )
-                signals.append(_RiskSignal(
-                    evidence=RiskEvidence(
-                        source="ai_interpretation",
-                        indicator="ai_suspicious_indicator",
-                        severity="medium",
-                        weight=0,
-                        description="The AI overview identified a suspicious message characteristic; this is advisory evidence.",
-                        evidence=f"{finding}{confidence_note}",
-                    ),
-                    strength=20,
-                    correlation_group="ai_interpretation",
-                    order=2,
-                ))
-            if ai_findings:
-                limitations.append(
-                    "AI-identified message characteristics contribute a capped, advisory amount to the risk score."
-                )
-        evidence, score = self._aggregate(signals)
-        classification = RiskClassification.CONFIRMED_MALICIOUS if exact_match and score >= _CONFIRMED_SCORE_THRESHOLD else self._classify(score)
-        coverage = 0.65 if ai_explanation.status != "available" else 0.85
-        if intelligence:
-            coverage = (coverage + (sum(item.status is not ThreatIntelStatus.UNAVAILABLE for item in intelligence) / len(intelligence))) / 2
-        if not indicators and not intelligence:
-            coverage = min(coverage, 0.35)
+                for item in url_assessments
+            ) / (2 * len(url_assessments))
+            confidence = (confidence + url_coverage) / 2
         precautions = ["Do not reply, open links, or share credentials/payment details until you verify the sender through an independent official channel."]
-        return RiskAssessment(classification=classification, score=score, confidence=round(min(0.95, coverage), 2), contributing_indicators=evidence, recommended_precautions=precautions, limitations=list(dict.fromkeys(limitations)))
+        return RiskAssessment(classification=classification, score=score, confidence=round(min(0.95, max(0, confidence)), 2), contributing_indicators=evidence, recommended_precautions=precautions, limitations=list(dict.fromkeys(limitations)))
 
     @staticmethod
-    def _aggregate(signals: list[_RiskSignal]) -> tuple[list[RiskEvidence], int]:
+    def _classify_message(score: int) -> RiskClassification:
+        if score < 20:
+            return RiskClassification.LOW_RISK
+        if score < 60:
+            return RiskClassification.SUSPICIOUS
+        return RiskClassification.HIGH_RISK
+
+    @staticmethod
+    def _aggregate(signals: list[_RiskSignal], *, initial_score: int = 0) -> tuple[list[RiskEvidence], int]:
         ordered = sorted(
             signals,
             key=lambda item: (
@@ -595,7 +663,7 @@ class RiskScorer:
                 item.evidence.evidence,
             ),
         )
-        score = 0
+        score = max(0, min(100, initial_score))
         family_counts: dict[str, int] = {}
         seen_evidence: set[tuple[str, str]] = set()
         weighted: list[RiskEvidence] = []

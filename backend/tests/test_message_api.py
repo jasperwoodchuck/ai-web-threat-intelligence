@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.main import app
 from app.models.message import AIExplanation, MessageAnalysisRequest
+from app.models.message import ScamAssessment
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
 
@@ -29,6 +30,13 @@ def test_message_route_makes_one_correlated_openrouter_request(monkeypatch, capl
         "choices": [{"message": {"content": json.dumps({
             "summary": "Review the request carefully.", "suspicious_indicators": [], "evidence": [],
             "recommended_actions": ["Verify independently."], "limitations": [], "confidence": 0.8,
+        "scam_assessment": {
+            "classification": "low", "risk_score": 8, "confidence": 0.8,
+            "has_scam_intent": False, "impersonates_entity": False, "requests_money": False,
+            "requests_credentials": False, "uses_urgency": False,
+            "has_suspicious_instructions": False, "has_url": False,
+            "claims_transaction": False, "signals": [], "reasoning": "Routine account notice.",
+        },
         })}, "finish_reason": "stop"}]
     }
     calls = []
@@ -48,6 +56,7 @@ def test_message_route_makes_one_correlated_openrouter_request(monkeypatch, capl
     result = main.analyze_message(MessageAnalysisRequest(message="Please review this account notice."))
 
     assert result.ai_explanation.status == "available"
+    assert result.ai_explanation.scam_assessment.risk_score == 8
     assert len(calls) == 1
     request_ids = {
         record.getMessage().split("request_id=", 1)[1].split()[0]
@@ -57,6 +66,25 @@ def test_message_route_makes_one_correlated_openrouter_request(monkeypatch, capl
     assert len(request_ids) == 1
     assert any("operation=message_analysis" in record.getMessage() for record in caplog.records)
     assert any("operation=interpretation" in record.getMessage() for record in caplog.records)
+
+
+def test_generic_advice_api_returns_low_risk_and_no_url_positive_signal(monkeypatch) -> None:
+    monkeypatch.setattr(main.ai_provider, "explain", lambda *_args: AIExplanation(
+        status="available", summary="Protective advice.", confidence=0.9,
+        scam_assessment=ScamAssessment(
+            classification="low", risk_score=5, confidence=0.9, has_scam_intent=False,
+            impersonates_entity=False, requests_money=False, requests_credentials=False,
+            uses_urgency=False, has_suspicious_instructions=False, has_url=False,
+            claims_transaction=False, signals=[], reasoning="The message warns against sending money.",
+        ),
+    ))
+    response = TestClient(app).post("/api/v1/analyze/message", json={"message": "this is to remind you that do not pay ppl online without knowing"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["risk_assessment"]["classification"] == "Low Risk"
+    assert body["risk_assessment"]["score"] == 5
+    assert body["url_assessments"] == []
+    assert not any(item["source"].startswith("url_") and item["weight"] > 0 for item in body["risk_assessment"]["contributing_indicators"])
 
 
 def test_message_api_rejects_empty_and_oversized(monkeypatch) -> None:

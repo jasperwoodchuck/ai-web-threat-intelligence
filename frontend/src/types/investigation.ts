@@ -40,6 +40,7 @@ export interface FileAnalysisResponse {
   extracted_urls: string[];
   deterministic_indicators: MessageIndicator[];
   url_threat_intelligence: MessageAnalysisResponse["url_threat_intelligence"];
+  url_assessments: MessageAnalysisResponse["url_assessments"];
   risk_assessment: RiskAssessment;
   ai_explanation: AIExplanation;
 }
@@ -234,9 +235,31 @@ export interface MessageAnalysisResponse {
     match_scope: string | null;
     threat_type: string | null;
   }[];
+  url_assessments: MessageURLAssessment[];
   risk_assessment: RiskAssessment;
   ai_explanation: AIExplanation;
   limitations: string[];
+}
+export interface ScamAssessment {
+  classification: "low" | "suspicious" | "high";
+  risk_score: number;
+  confidence: number;
+  has_scam_intent: boolean;
+  impersonates_entity: boolean;
+  requests_money: boolean;
+  requests_credentials: boolean;
+  uses_urgency: boolean;
+  has_suspicious_instructions: boolean;
+  has_url: boolean;
+  claims_transaction: boolean;
+  signals: { type: string; severity: "low" | "medium" | "high"; evidence: string }[];
+  reasoning: string;
+}
+export interface MessageURLAssessment {
+  submitted_url: string;
+  url_analysis: UrlAnalysis;
+  phishing_analysis: PhishingAnalysis;
+  threat_intelligence: MessageAnalysisResponse["url_threat_intelligence"];
 }
 export type AIExplanationStatus = "available" | "unavailable" | "malformed" | "not_requested";
 export interface AIExplanation {
@@ -248,6 +271,7 @@ export interface AIExplanation {
   limitations: string[];
   confidence: number | null;
   advisory_note: string;
+  scam_assessment?: ScamAssessment | null;
 }
 export interface KeyValue {
   label: string;

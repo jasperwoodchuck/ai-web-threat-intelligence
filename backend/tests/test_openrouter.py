@@ -30,6 +30,13 @@ VALID_INTERPRETATION = {
     "limitations": [],
     "confidence": 0.82,
 }
+VALID_SCAM_ASSESSMENT = {
+    "classification": "low", "risk_score": 8, "confidence": 0.8,
+    "has_scam_intent": False, "impersonates_entity": False, "requests_money": False,
+    "requests_credentials": False, "uses_urgency": False,
+    "has_suspicious_instructions": False, "has_url": False,
+    "claims_transaction": False, "signals": [], "reasoning": "Routine notice.",
+}
 
 
 def response(content: object, status: int = 200) -> Response:
@@ -70,6 +77,23 @@ def test_valid_structured_json_and_schema_request(monkeypatch, caplog) -> None:
     assert "status=200" in caplog.text
     assert "structured output parsed" in caplog.text
     assert "test-secret-key" not in caplog.text
+
+
+def test_semantic_message_request_uses_structured_scam_schema_and_contextual_prompt(monkeypatch) -> None:
+    response_fields = {**VALID_INTERPRETATION, "scam_assessment": VALID_SCAM_ASSESSMENT}
+    capture = {}
+    mock_response(monkeypatch, json.dumps(response_fields), capture=capture)
+    result = provider().explain(
+        "Do not pay people online without knowing them.", [], [], semantic=True,
+    )
+    request_body = json.loads(capture["request"].data)
+    schema = request_body["response_format"]["json_schema"]["schema"]["properties"]["scam_assessment"]["properties"]
+    prompt = request_body["messages"][0]["content"]
+    assert result.scam_assessment is not None
+    assert {"classification", "has_scam_intent", "requests_money", "claims_transaction", "signals"} <= set(schema)
+    assert "Poor grammar is not strong evidence" in prompt
+    assert "protective advice" in prompt
+    assert "URL presence or URL reputation" in prompt
 
 
 def test_parses_json_inside_markdown_fence(monkeypatch) -> None:
@@ -209,6 +233,7 @@ def test_image_and_text_inspection_use_same_configured_model(monkeypatch) -> Non
         "indicators": [],
         "recommended_action": "Verify independently.",
         "limitations": [],
+        "scam_assessment": VALID_SCAM_ASSESSMENT,
     }
 
     def fake_urlopen(request, timeout):
@@ -231,6 +256,7 @@ def test_image_analysis_200(monkeypatch) -> None:
         "extracted_text": "Visible notice", "content_type": "notification", "classification_confidence": 0.8,
         "classification_reasoning": "Notification", "summary": "Notice", "indicators": [],
         "recommended_action": "Verify independently", "limitations": [],
+        "scam_assessment": VALID_SCAM_ASSESSMENT,
     }))
     assert provider().inspect_image(b"image", "image/png")["extracted_text"] == "Visible notice"
 

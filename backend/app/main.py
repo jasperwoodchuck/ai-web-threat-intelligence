@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.ai.openrouter import OPENROUTER_REQUEST_ID, ModelCapabilityError, ModelResponseError, OpenRouterProvider, ProviderRequestError
 from app.analyzers.dns import DnsAnalyzer
 from app.analyzers.http import HttpAnalyzer
-from app.analyzers.message import MAX_MESSAGE_LENGTH, MessageAnalyzer
+from app.analyzers.message import MAX_MESSAGE_LENGTH, MessageAnalyzer, normalize_message_text
 from app.analyzers.phishing import PhishingAnalyzer
 from app.analyzers.reachability import UrlReachabilityChecker
 from app.analyzers.tls import TlsAnalyzer
@@ -238,6 +238,7 @@ def analyze_message(request: MessageAnalysisRequest) -> MessageAnalysisResponse:
         outcome = analyze_message_content(
             message,
             message_analyzer=message_analyzer,
+            phishing_analyzer=phishing_analyzer,
             url_analyzer=url_analyzer,
             threat_intel_provider=threat_intel_provider,
             ai_provider=ai_provider,
@@ -283,7 +284,7 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
     if media_type.startswith("image/"):
         try:
             ai_result = ai_provider.inspect_image(data, media_type)
-            extracted_text = str(ai_result.get("extracted_text", ""))
+            extracted_text = normalize_message_text(str(ai_result.get("extracted_text", "")))
             ai_explanation = AIExplanation(
                 status="available",
                 summary=str(ai_result.get("summary", "")),
@@ -292,6 +293,7 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
                 recommended_actions=[str(ai_result.get("recommended_action", "Review the evidence before acting."))],
                 limitations=[str(item) for item in ai_result.get("limitations", [])],
                 confidence=float(ai_result.get("classification_confidence", 0)),
+                scam_assessment=ai_result.get("scam_assessment"),
             )
         except ModelCapabilityError as exc:
             raise HTTPException(status_code=422, detail={"code": "model_capability", "message": "The configured analysis model does not support image input."}) from exc
@@ -338,7 +340,7 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
             )
     elif media_type == "text/plain":
         try:
-            extracted_text = data.decode("utf-8-sig")[:30_000]
+            extracted_text = normalize_message_text(data.decode("utf-8-sig")[:30_000])
         except UnicodeDecodeError as exc:
             raise HTTPException(status_code=400, detail="Unable to read this text file.") from exc
         if not extracted_text.strip():
@@ -352,6 +354,7 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
                 recommended_actions=[str(ai_result.get("recommended_action", "Review the evidence before acting."))],
                 limitations=[str(item) for item in ai_result.get("limitations", [])],
                 confidence=float(ai_result.get("classification_confidence", 0)),
+                scam_assessment=ai_result.get("scam_assessment"),
             )
         except ModelResponseError as exc:
             ai_result = {
@@ -374,7 +377,7 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
                 raise ValueError("Encrypted PDF")
             if len(reader.pages) > 30:
                 limitations.append("Only the first 30 PDF pages are considered.")
-            extracted_text = "\n\n".join((page.extract_text() or "") for page in reader.pages[:30])[:30_000]
+            extracted_text = normalize_message_text("\n\n".join((page.extract_text() or "") for page in reader.pages[:30])[:30_000])
             if not extracted_text.strip():
                 limitations.append("No selectable text was found. Scanned PDF pages are not OCR processed.")
                 ai_result = {
@@ -401,6 +404,7 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
                     recommended_actions=[str(ai_result.get("recommended_action", "Review the evidence before acting."))],
                     limitations=[str(item) for item in ai_result.get("limitations", [])],
                     confidence=float(ai_result.get("classification_confidence", 0)),
+                    scam_assessment=ai_result.get("scam_assessment"),
                 )
             except ModelResponseError as exc:
                 ai_result = {
@@ -428,11 +432,13 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
     text_outcome = analyze_message_content(
         extracted_text,
         message_analyzer=message_analyzer,
+        phishing_analyzer=phishing_analyzer,
         url_analyzer=url_analyzer,
         threat_intel_provider=threat_intel_provider,
         ai_provider=ai_provider,
         risk_scorer=risk_scorer,
         ai_explanation=ai_explanation,
+        reanalyze_semantics=media_type.startswith("image/") and bool(extracted_text.strip()),
     )
     analysis = text_outcome["analysis"]
     ai_explanation = text_outcome["ai_explanation"]
@@ -459,6 +465,7 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
         indicators=indicators,
         limitations=list(dict.fromkeys(list(text_outcome["limitations"]) + limitations + list(ai_explanation.limitations))),
         extracted_urls=analysis["extracted_urls"],
+        url_assessments=text_outcome["url_assessments"],
         deterministic_indicators=analysis["deterministic_indicators"],
         url_threat_intelligence=text_outcome["url_threat_intelligence"],
         risk_assessment=text_outcome["risk_assessment"],

@@ -8,7 +8,7 @@ from pypdf import PdfWriter
 
 from app import main
 from app.ai.openrouter import ModelCapabilityError, ModelResponseError, ProviderRateLimitError
-from app.models.message import AIExplanation, MessageAnalysisRequest
+from app.models.message import AIExplanation, MessageAnalysisRequest, ScamAssessment
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
 
@@ -26,6 +26,12 @@ def _model_result(**overrides):
         "indicators": ["Urgent credential request"],
         "recommended_action": "Do not use the link; verify through the official site.",
         "limitations": [],
+        "scam_assessment": ScamAssessment(
+            classification="high", risk_score=82, confidence=0.91, has_scam_intent=True,
+            impersonates_entity=True, requests_money=False, requests_credentials=True,
+            uses_urgency=True, has_suspicious_instructions=True, has_url=True,
+            claims_transaction=True, signals=[], reasoning="A credential verification request is tied to a suspicious account claim.",
+        ).model_dump(mode="json"),
     }
     return result | overrides
 
@@ -41,7 +47,13 @@ def _intel(indicator, status=ThreatIntelStatus.NO_MATCH):
 
 
 def test_image_file_classifies_and_reuses_message_security_analysis(monkeypatch) -> None:
-    monkeypatch.setattr(main.ai_provider, "inspect_image", lambda *_: _model_result())
+    _assertion = {}
+    monkeypatch.setattr(main.ai_provider, "inspect_image", lambda *_: _model_result(extracted_text="Your account  \n is suspended. Verify your password immediately at https://account-check.test/login"))
+    monkeypatch.setattr(main.ai_provider, "explain", lambda text, *_args: (
+        _assertion.update(message=text) or AIExplanation(
+            status="available", scam_assessment=ScamAssessment(**_model_result()["scam_assessment"]),
+        )
+    ))
     monkeypatch.setattr(main.threat_intel_provider, "lookup", lambda indicator: _intel(indicator))
     body = json.loads(main.analyze_file(_upload("evidence.jpg", b"\xff\xd8\xffsample", "image/jpeg")).body)
     assert body["content_type"] == "email"
@@ -49,16 +61,20 @@ def test_image_file_classifies_and_reuses_message_security_analysis(monkeypatch)
     assert body["extracted_urls"] == ["https://account-check.test/login"]
     assert {item["category"] for item in body["deterministic_indicators"]} >= {"urgency", "credential_request"}
     assert body["risk_assessment"]["score"] > 0
+    assert "Your account\nis suspended." in _assertion["message"]
+    assert body["ai_explanation"]["scam_assessment"]["classification"] == "high"
     assert body["recommended_action"].startswith("Do not use the link")
     assert len(body["sha256"]) == 64
 
 
 def test_text_document_uses_shared_ai_and_returns_typed_analysis(monkeypatch) -> None:
-    monkeypatch.setattr(main.ai_provider, "inspect_text", lambda text: _model_result(extracted_text=text, content_type="document"))
+    inspected = []
+    monkeypatch.setattr(main.ai_provider, "inspect_text", lambda text: inspected.append(text) or _model_result(extracted_text=text, content_type="document"))
     monkeypatch.setattr(main.threat_intel_provider, "lookup", lambda indicator: _intel(indicator, ThreatIntelStatus.UNAVAILABLE))
-    body = json.loads(main.analyze_file(_upload("note.txt", b"Please review this document.", "text/plain")).body)
+    body = json.loads(main.analyze_file(_upload("note.txt", b"Please  \t review this document.", "text/plain")).body)
     assert body["content_type"] == "document"
     assert body["extracted_text"] == "Please review this document."
+    assert inspected == ["Please review this document."]
     assert body["ai_explanation"]["status"] == "available"
     assert "risk_assessment" in body
 
@@ -137,5 +153,6 @@ def test_message_route_returns_normalized_security_inputs(monkeypatch) -> None:
     monkeypatch.setattr(main.ai_provider, "explain", lambda *_: AIExplanation(status="available", summary="Verify the sender."))
     result = main.analyze_message(MessageAnalysisRequest(message="Open the attached file immediately."))
     assert result.ai_explanation.status == "available"
-    assert result.risk_assessment.score > 0
+    assert result.risk_assessment.score == 0
+    assert result.risk_assessment.classification.value == "Low Risk"
     assert any(item.category == "attachment_reference" for item in result.deterministic_indicators)
