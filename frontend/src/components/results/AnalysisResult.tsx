@@ -108,6 +108,11 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
       tone: "neutral",
     });
   return {
+    aiOverview: {
+      status: result.ai_explanation.status,
+      summary: result.ai_explanation.summary,
+      advisoryNote: result.ai_explanation.advisory_note,
+    },
     risk: result.risk_assessment,
     findings: unique,
     recommendation:
@@ -169,6 +174,11 @@ function normalizeMessage(result: MessageAnalysisResponse): NormalizedAnalysisRe
 
 function normalizeFile(result: FileAnalysisResponse): NormalizedAnalysisResult {
   return {
+    aiOverview: {
+      status: result.ai_explanation.status,
+      summary: result.ai_explanation.summary ?? result.summary,
+      advisoryNote: result.ai_explanation.advisory_note,
+    },
     contentType:
       result.classification_confidence < MIN_CLASSIFICATION_CONFIDENCE
         ? "Unknown"
@@ -298,6 +308,26 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
           ))}
         </ul>
       </section>
+      {result.aiOverview && (
+        <section className="result-section ai-advisory ai-overview" aria-label="AI overview">
+          <div className="ai-advisory-heading">
+            <span className="ai-advisory-mark" aria-hidden="true">✦</span>
+            <div>
+              <h3>AI overview</h3>
+              <span>Advisory interpretation</span>
+            </div>
+            <Badge tone={result.aiOverview.status === "available" ? "info" : "warning"}>
+              {result.aiOverview.status === "available" ? "Available" : "Unavailable"}
+            </Badge>
+          </div>
+          <p>
+            {result.aiOverview.status === "available"
+              ? result.aiOverview.summary || "No AI overview was returned."
+              : "An AI overview could not be generated for this analysis. Review the deterministic checks and evidence below."}
+          </p>
+          <p className="ai-overview-note">{result.aiOverview.advisoryNote}</p>
+        </section>
+      )}
       <section className="notice-card notice-precautions analysis-recommendation">
         <div className="notice-heading">
           <span aria-hidden="true">✓</span>

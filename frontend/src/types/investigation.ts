@@ -255,6 +255,11 @@ export interface NormalizedSecurityCheck {
 }
 export interface NormalizedAnalysisResult {
   contentType?: string;
+  aiOverview?: {
+    status: string;
+    summary: string | null;
+    advisoryNote: string;
+  };
   risk: RiskAssessment;
   findings: SummaryFinding[];
   recommendation: string;
