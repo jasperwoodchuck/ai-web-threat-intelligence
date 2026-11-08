@@ -37,6 +37,9 @@
 .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(96, 218, 220, .4); border-radius: 0; background: linear-gradient(145deg, rgba(26, 158, 169, .25), rgba(76, 92, 211, .22)); box-shadow: 0 0 20px rgba(40, 190, 193, .14); }
 .brand-mark svg { width: 21px; height: 21px; stroke: #82e9e0; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .topbar-actions { display: flex; align-items: center; gap: 16px; }
+.github-link { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(132, 184, 216, .2); color: #a9bfd2; transition: color .18s ease, border-color .18s ease, background .18s ease; }
+.github-link svg { width: 18px; height: 18px; }
+.github-link:hover { border-color: rgba(99, 205, 210, .42); background: rgba(55, 158, 171, .12); color: #e8ffff; }
 .system-status { display: inline-flex; align-items: center; gap: 9px; color: var(--header-muted); font-size: 13px; }
 .system-status strong, .system-status small { display: block; }
 .system-status strong { color: #dcf5f3; font-size: 13px; font-weight: 650; }
