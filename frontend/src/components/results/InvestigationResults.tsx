@@ -8,10 +8,13 @@ import type {
   WebsiteAvailability,
 } from "../../types/investigation";
 import { AnalysisResult } from "./AnalysisResult";
+import { TyposquattingDetectionCard } from "./TyposquattingDetectionCard";
+import type { TyposquattingDisplay } from "../../lib/typosquatting";
 
 type InvestigationResultsProps = {
   result: UrlAnalysisResponse | null;
   availability: WebsiteAvailability | null;
+  typosquattingOnly: TyposquattingDisplay | null;
   fileResult: FileAnalysisResponse | null;
   messageResult: MessageAnalysisResponse | null;
   error: string;
@@ -53,6 +56,9 @@ export function InvestigationResults(props: InvestigationResultsProps) {
             <p className="availability-detail">{props.availability.details}</p>
           </div>
         </section>
+      )}
+      {props.typosquattingOnly && (
+        <TyposquattingDetectionCard detection={props.typosquattingOnly} />
       )}
       {props.error && !props.availability && <ErrorState message={props.error} />}
       {props.loading && <LoadingState />}

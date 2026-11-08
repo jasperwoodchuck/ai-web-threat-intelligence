@@ -13,7 +13,7 @@ from app.ai.base import AIProvider
 from app.models.message import AIExplanation
 
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_REQUEST_TIMEOUT_SECONDS = 45.0
+OPENROUTER_REQUEST_TIMEOUT_SECONDS = 90.0
 logger = logging.getLogger(__name__)
 
 INTERPRETATION_PROPERTIES = {

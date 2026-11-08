@@ -11,6 +11,7 @@ export interface WebsiteAvailability {
 }
 export interface UrlAvailabilityResponse {
   availability: WebsiteAvailability;
+  typosquatting?: TyposquattingAnalysis | null;
 }
 export type FileContentType =
   | "email"

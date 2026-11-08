@@ -33,3 +33,4 @@ class WebsiteAvailability(BaseModel):
 
 class UrlAvailabilityResponse(BaseModel):
     availability: WebsiteAvailability
+    typosquatting: TyposquattingAnalysis | None = None

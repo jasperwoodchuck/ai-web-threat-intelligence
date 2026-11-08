@@ -112,6 +112,15 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse | UrlAvailab
         details=reachability.details, domain=url_analysis.hostname,
         http_status=reachability.http_status,
     )
+    if reachability.status == "not_found":
+        return UrlAvailabilityResponse(
+            availability=availability,
+            typosquatting=(
+                phishing_analysis.typosquatting
+                if phishing_analysis.typosquatting.detected
+                else None
+            ),
+        )
     if reachability.status != "reachable" and not phishing_analysis.typosquatting.detected:
         return UrlAvailabilityResponse(availability=availability)
 

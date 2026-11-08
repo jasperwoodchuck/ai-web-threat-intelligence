@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TyposquattingDetectionCard, getTyposquattingDetection } from "../src/components/results/TyposquattingDetectionCard";
+import { TyposquattingDetectionCard } from "../src/components/results/TyposquattingDetectionCard";
 import type { AnalysisApiResult } from "../src/lib/reportExport";
+import { getTyposquattingDetection } from "../src/lib/typosquatting";
 
 function urlResult(detected: boolean): AnalysisApiResult {
   return {

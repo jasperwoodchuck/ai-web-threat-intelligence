@@ -10,7 +10,7 @@ function App() {
   const { theme, selectTheme } = useTheme();
   const investigation = useInvestigation();
 
-  const hasInvestigationContent = investigation.loading || investigation.error || investigation.availability || investigation.result || investigation.messageResult || investigation.fileResult;
+  const hasInvestigationContent = investigation.loading || investigation.error || investigation.availability || investigation.typosquattingOnly || investigation.result || investigation.messageResult || investigation.fileResult;
 
   return <div className={`app-shell${hasInvestigationContent ? " has-investigation-content" : " is-initial"}`}>
     <AnimatedSecurityBackground />
@@ -33,6 +33,7 @@ function App() {
       <InvestigationResults
         result={investigation.result}
         availability={investigation.availability}
+        typosquattingOnly={investigation.typosquattingOnly}
         fileResult={investigation.fileResult}
         messageResult={investigation.messageResult}
         error={investigation.error}

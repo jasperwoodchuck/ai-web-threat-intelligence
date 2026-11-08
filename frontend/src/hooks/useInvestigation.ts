@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { analysisApiBaseUrl, apiUrl, isProductionApiConfigured } from "../lib/api";
+import { parseTyposquattingDetection, type TyposquattingDisplay } from "../lib/typosquatting";
 import type {
   AnalysisMode,
   AIExplanation,
@@ -10,7 +11,7 @@ import type {
 } from "../types/investigation";
 
 // Allow the backend's bounded OpenRouter request and response processing to finish.
-const ANALYSIS_TIMEOUT_MS = 60_000;
+const ANALYSIS_TIMEOUT_MS = 120_000;
 
 class AnalysisClientError extends Error {
   constructor(message: string) {
@@ -136,6 +137,7 @@ export function useInvestigation() {
   const [messageResult, setMessageResult] = useState<MessageAnalysisResponse | null>(null);
   const [result, setResult] = useState<UrlAnalysisResponse | null>(null);
   const [availability, setAvailability] = useState<WebsiteAvailability | null>(null);
+  const [typosquattingOnly, setTyposquattingOnly] = useState<TyposquattingDisplay | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [detailedOpen, setDetailedOpen] = useState(false);
@@ -149,6 +151,7 @@ export function useInvestigation() {
     setMessageResult(null);
     setFileResult(null);
     setAvailability(null);
+    setTyposquattingOnly(null);
     setDetailedOpen(false);
   }
 
@@ -161,6 +164,7 @@ export function useInvestigation() {
     setMessageResult(null);
     setFileResult(null);
     setAvailability(null);
+    setTyposquattingOnly(null);
     setDetailedOpen(false);
 
     const content = (mode === "url" ? url : message).trim();
@@ -221,8 +225,13 @@ export function useInvestigation() {
       }
       if (mode === "url" && isRecord(payload) && isRecord(payload.availability)) {
         const status = payload.availability.status;
-        const lookalikeDetected =
-          isRecord(payload.typosquatting) && payload.typosquatting.detected === true;
+        const typoDetection = parseTyposquattingDetection(payload.typosquatting);
+        if (status === "not_found" && typoDetection) {
+          setTyposquattingOnly(typoDetection);
+          analysisLog("completed", { mode, status, result: "typosquatting_only" });
+          return;
+        }
+        const lookalikeDetected = typoDetection !== null;
         if (["not_found", "unreachable", "error"].includes(String(status)) && !lookalikeDetected) {
           setAvailability(payload.availability as unknown as WebsiteAvailability);
           if (status === "error")
@@ -281,6 +290,7 @@ export function useInvestigation() {
     messageResult,
     result,
     availability,
+    typosquattingOnly,
     error,
     loading,
     detailedOpen,

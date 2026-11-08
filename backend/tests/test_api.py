@@ -10,7 +10,7 @@ from app.analyzers.reachability import ReachabilityResult
 from app.models.dns import DnsAnalysisResult
 from app.models.http import HttpAnalysisResult
 from app.models.message import AIExplanation
-from app.models.phishing import FraudUrlSignal, PhishingAnalysisResult
+from app.models.phishing import FraudUrlSignal, PhishingAnalysisResult, TyposquattingAnalysis
 from app.models.tls import TlsAnalysisResult, TlsCertificate
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 from app.main import app
@@ -266,3 +266,48 @@ def test_yovtube_reaches_phishing_and_risk_analysis_through_api(monkeypatch) -> 
         "yovtube.com may impersonate youtube.com using character substitution."
     )
     assert body["risk_assessment"]["score"] == 30
+
+
+def test_nonexistent_typosquatting_url_returns_only_availability_and_detection(monkeypatch) -> None:
+    detection = TyposquattingAnalysis(
+        detected=True,
+        submitted_domain="yovtube.com",
+        possible_intended_site="youtube.com",
+        similarity=0.86,
+        edit_distance=1,
+        domain="yovtube.com",
+        reference_domain="youtube.com",
+        technique="character_substitution",
+        severity="medium",
+        evidence="'v' replaces 'u' in the domain label.",
+    )
+    monkeypatch.setattr(
+        main,
+        "phishing_analyzer",
+        SimpleNamespace(
+            analyze=lambda _url: PhishingAnalysisResult(
+                is_suspicious=True,
+                score=30,
+                fraudurl=FraudUrlSignal(status="skipped"),
+                typosquatting=detection,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "reachability_checker",
+        SimpleNamespace(
+            check=lambda *_: ReachabilityResult(
+                "not_found", "Website could not be found.", "DNS did not resolve."
+            )
+        ),
+    )
+
+    response = client.post("/api/v1/analyze/url", json={"url": "https://yovtube.com"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"availability", "typosquatting"}
+    assert body["availability"]["status"] == "not_found"
+    assert body["typosquatting"]["detected"] is True
+    assert body["typosquatting"]["reference_domain"] == "youtube.com"

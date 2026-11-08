@@ -14,8 +14,8 @@ import { DetailPanel, EvidenceList, KeyValueGrid, ValueList } from "./ResultPrim
 import { AnalysisDetailModal, type AnalysisCardDetail } from "./AnalysisDetailModal";
 import { ReportExportActions } from "./ReportExportActions";
 import type { AnalysisApiResult } from "../../lib/reportExport";
+import { getTyposquattingDetection } from "../../lib/typosquatting";
 import {
-  getTyposquattingDetection,
   TyposquattingDetectionCard,
 } from "./TyposquattingDetectionCard";
 
