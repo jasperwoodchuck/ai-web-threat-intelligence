@@ -122,7 +122,10 @@
 .input-label-row label { color: var(--text-heading); font-size: 13px; font-weight: 750; }
 .input-mode-note { color: var(--text-faint); font-size: 12px; }
 .url-field-wrap { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 0 13px; border: 1px solid var(--border-strong); border-radius: 0; background: var(--surface-input); transition: .2s ease; }
-.url-field-wrap:focus-within, .analysis-input textarea:focus { border-color: var(--accent-blue); background: var(--surface-card-solid); box-shadow: 0 0 0 4px var(--accent-focus), 0 0 24px rgba(56, 119, 230, .12); }
+.url-field-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-focus); }
+.url-field-wrap input:focus, .url-field-wrap input:focus-visible { outline: none; box-shadow: none; }
+.url-field-wrap:focus-within .field-shortcut { border-color: var(--border-subtle); box-shadow: none; }
+.analysis-input textarea:focus { border-color: var(--accent-blue); background: var(--surface-card-solid); box-shadow: 0 0 0 3px var(--accent-focus); }
 .url-icon { width: 18px; height: 18px; flex: 0 0 auto; stroke: var(--accent); stroke-width: 1.55; }
 .url-field-wrap input { width: 100%; height: 46px; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--text-heading); font-family: "SFMono-Regular", Consolas, monospace; font-size: 15px; }
 .url-field-wrap input::placeholder, .analysis-input textarea::placeholder { color: var(--text-faint); }
