@@ -1,8 +1,9 @@
 import hashlib
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.ai.openrouter import OpenRouterProvider
+from app.ai.openrouter import ModelCapabilityError, ModelResponseError, OpenRouterProvider
 from app.analyzers.dns import DnsAnalyzer
 from app.analyzers.http import HttpAnalyzer
 from app.analyzers.message import MAX_MESSAGE_LENGTH, MessageAnalyzer
@@ -12,10 +13,14 @@ from app.analyzers.tls import TlsAnalyzer
 from app.analyzers.url import UrlAnalyzer
 from app.config import frontend_origins, load_environment
 from app.models.analysis import UrlAnalysisResponse, UrlAvailabilityResponse, WebsiteAvailability
+from app.models.file import FileAnalysisResponse
 from app.models.message import AIExplanation, MessageAnalysisRequest, MessageAnalysisResponse
 from app.models.url import UrlAnalysisRequest
 from app.scoring.risk import RiskScorer
+from app.services.message_analysis import analyze_message_content
 from app.threat_intel.urlhaus import UrlhausProvider
+from pypdf import PdfReader
+from io import BytesIO
 
 load_environment()
 
@@ -98,42 +103,19 @@ def analyze_message(request: MessageAnalysisRequest) -> MessageAnalysisResponse:
         raise HTTPException(status_code=422, detail="Message must not be empty or whitespace.")
     if len(message) > MAX_MESSAGE_LENGTH:
         raise HTTPException(status_code=422, detail=f"Message must be at most {MAX_MESSAGE_LENGTH} characters.")
-    analysis = message_analyzer.analyze(message)
-    intel_results = []
-    for extracted_url in analysis["extracted_urls"]:
-        parsed = url_analyzer.analyze(extracted_url)
-        if not parsed.is_valid or not parsed.normalized_url or not parsed.hostname:
-            continue
-        if parsed.has_query or parsed.has_username:
-            # Avoid sending possibly sensitive query parameters or URL credentials
-            # to a third party; retain only a hostname association in this case.
-            intel_results.append(threat_intel_provider.lookup(parsed.hostname))
-        else:
-            exact = threat_intel_provider.lookup(parsed.normalized_url)
-            intel_results.append(exact)
-            if exact.status.value == "no_match":
-                # Host association is a separate, weaker scope; never crawl the URL.
-                intel_results.append(threat_intel_provider.lookup(parsed.hostname))
-    indicator_payload = [item.model_dump(mode="json") for item in analysis["deterministic_indicators"]]
-    intel_payload = [item.model_dump(mode="json") for item in intel_results]
-    try:
-        ai_explanation = ai_provider.explain(message, indicator_payload, intel_payload)
-    except Exception:
-        ai_explanation = AIExplanation(status="unavailable", limitations=["OpenRouter explanation failed; deterministic analysis is preserved."])
-    risk = risk_scorer.assess_message(analysis["deterministic_indicators"], intel_results, ai_explanation)
-    limitations = list(risk.limitations)
-    if analysis["extracted_urls"]:
-        limitations.append("Extracted URLs were normalized and checked against threat intelligence only; no website request or redirect following was performed.")
-        if any(url_analyzer.analyze(url).has_query or url_analyzer.analyze(url).has_username for url in analysis["extracted_urls"]):
-            limitations.append("URL queries and embedded credentials were not sent to threat intelligence; those URLs received hostname-only lookup.")
-    else:
-        limitations.append("No HTTP/HTTPS URLs were extracted for threat-intelligence lookup.")
-    limitations.append("When enabled, the submitted message is sent to OpenRouter for advisory interpretation.")
-    return MessageAnalysisResponse(**analysis, url_threat_intelligence=intel_results, risk_assessment=risk, ai_explanation=ai_explanation, limitations=list(dict.fromkeys(limitations)))
+    outcome = analyze_message_content(
+        message,
+        message_analyzer=message_analyzer,
+        url_analyzer=url_analyzer,
+        threat_intel_provider=threat_intel_provider,
+        ai_provider=ai_provider,
+        risk_scorer=risk_scorer,
+    )
+    return MessageAnalysisResponse(**outcome["analysis"], **{key: value for key, value in outcome.items() if key != "analysis"})
 
 
-@app.post("/api/v1/analyze/file")
-async def analyze_file(file: UploadFile = File(...)) -> dict[str, object]:
+@app.post("/api/v1/analyze/file", response_model=FileAnalysisResponse)
+def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONResponse:
     allowed = {
         ".jpg": ("image/jpeg", "image/jpeg"), ".jpeg": ("image/jpeg", "image/jpeg"),
         ".png": ("image/png", "image/png"), ".webp": ("image/webp", "image/webp"),
@@ -144,7 +126,7 @@ async def analyze_file(file: UploadFile = File(...)) -> dict[str, object]:
     expected = allowed.get(suffix)
     if expected is None:
         raise HTTPException(status_code=415, detail="This file type isn't supported.")
-    data = await file.read(10 * 1024 * 1024 + 1)
+    data = file.file.read(10 * 1024 * 1024 + 1)
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="The file is too large. Maximum size is 10 MB.")
     media_type, signature = expected
@@ -159,24 +141,135 @@ async def analyze_file(file: UploadFile = File(...)) -> dict[str, object]:
         raise HTTPException(status_code=400, detail="Unable to read this file. Try another file.")
     if file.content_type and file.content_type != media_type:
         raise HTTPException(status_code=415, detail="The file type does not match its contents.")
-    result: dict[str, object] = {
-        "filename": name, "media_type": media_type, "size_bytes": len(data),
-        "sha256": hashlib.sha256(data).hexdigest(),
-        "extracted_text": "", "summary": "", "indicators": [],
-        "limitations": ["AI image interpretation is advisory and may omit or misread text."],
-    }
+    extracted_text = ""
+    limitations: list[str] = []
+    ai_result: dict[str, object] = {}
+    ai_explanation: AIExplanation | None = None
     if media_type.startswith("image/"):
         try:
-            result.update(ai_provider.inspect_image(data, media_type))
+            ai_result = ai_provider.inspect_image(data, media_type)
+            extracted_text = str(ai_result.get("extracted_text", ""))
+            ai_explanation = AIExplanation(
+                status="available",
+                summary=str(ai_result.get("summary", "")),
+                suspicious_indicators=[str(item) for item in ai_result.get("indicators", [])],
+                evidence=[str(ai_result.get("classification_reasoning", ""))] if ai_result.get("classification_reasoning") else [],
+                recommended_actions=[str(ai_result.get("recommended_action", "Review the evidence before acting."))],
+                limitations=[str(item) for item in ai_result.get("limitations", [])],
+                confidence=float(ai_result.get("classification_confidence", 0)),
+            )
+        except ModelCapabilityError as exc:
+            raise HTTPException(status_code=422, detail={"code": "model_capability", "message": "The configured analysis model does not support image input."}) from exc
+        except ModelResponseError as exc:
+            raise HTTPException(status_code=502, detail={"code": "malformed_provider_response", "message": "The analysis service returned an unreadable result. Please retry with a different file."}) from exc
         except Exception as exc:
-            raise HTTPException(status_code=503, detail="Image analysis is temporarily unavailable.") from exc
+            raise HTTPException(status_code=503, detail={"code": "provider_failure", "message": "Image analysis is temporarily unavailable."}) from exc
     elif media_type == "text/plain":
         try:
-            result["extracted_text"] = data.decode("utf-8-sig")[:30_000]
+            extracted_text = data.decode("utf-8-sig")[:30_000]
         except UnicodeDecodeError as exc:
             raise HTTPException(status_code=400, detail="Unable to read this text file.") from exc
-        result["summary"] = "Text extracted from the uploaded file."
+        if not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="The text file contains no readable content.")
+        try:
+            ai_result = ai_provider.inspect_text(extracted_text)
+            ai_explanation = AIExplanation(
+                status="available", summary=str(ai_result.get("summary", "")),
+                suspicious_indicators=[str(item) for item in ai_result.get("indicators", [])],
+                evidence=[str(ai_result.get("classification_reasoning", ""))] if ai_result.get("classification_reasoning") else [],
+                recommended_actions=[str(ai_result.get("recommended_action", "Review the evidence before acting."))],
+                limitations=[str(item) for item in ai_result.get("limitations", [])],
+                confidence=float(ai_result.get("classification_confidence", 0)),
+            )
+        except Exception:
+            ai_result = {"content_type": "unknown", "classification_confidence": 0.35,
+                         "classification_reasoning": "The file is plain text; model classification was unavailable.",
+                         "summary": "Text was extracted. AI interpretation is currently unavailable.",
+                         "indicators": [], "recommended_action": "Review the extracted text and verify links or requests independently."}
+            ai_explanation = AIExplanation(status="unavailable", limitations=["AI file interpretation was unavailable; deterministic checks are shown."])
     else:
-        result["limitations"] = ["PDF text extraction is not enabled; file metadata and integrity were checked."]
-        result["summary"] = "PDF metadata and integrity checked. OCR is currently available for image files."
-    return result
+        try:
+            reader = PdfReader(BytesIO(data), strict=True)
+            if reader.is_encrypted:
+                raise ValueError("Encrypted PDF")
+            if len(reader.pages) > 30:
+                limitations.append("Only the first 30 PDF pages are considered.")
+            extracted_text = "\n\n".join((page.extract_text() or "") for page in reader.pages[:30])[:30_000]
+            if not extracted_text.strip():
+                limitations.append("No selectable text was found. Scanned PDF pages are not OCR processed.")
+                ai_result = {
+                    "content_type": "unknown", "classification_confidence": 0,
+                    "classification_reasoning": "The PDF contains no extractable text.",
+                    "summary": "The PDF was validated, but no selectable text was available to analyze.",
+                    "indicators": [], "recommended_action": "Review the PDF manually or upload page images for OCR.",
+                }
+            else:
+                ai_result = {}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Unable to read this PDF. Try another file.") from exc
+        if extracted_text.strip():
+            try:
+                ai_result = ai_provider.inspect_text(extracted_text)
+                ai_explanation = AIExplanation(
+                    status="available", summary=str(ai_result.get("summary", "")),
+                    suspicious_indicators=[str(item) for item in ai_result.get("indicators", [])],
+                    evidence=[str(ai_result.get("classification_reasoning", ""))] if ai_result.get("classification_reasoning") else [],
+                    recommended_actions=[str(ai_result.get("recommended_action", "Review the evidence before acting."))],
+                    limitations=[str(item) for item in ai_result.get("limitations", [])],
+                    confidence=float(ai_result.get("classification_confidence", 0)),
+                )
+            except Exception:
+                ai_result = {"content_type": "unknown", "classification_confidence": 0.35,
+                             "classification_reasoning": "Selectable PDF text was extracted; model classification was unavailable.",
+                             "summary": "PDF text was extracted. AI interpretation is currently unavailable.",
+                             "indicators": [], "recommended_action": "Review the extracted text and verify links or requests independently."}
+                ai_explanation = AIExplanation(status="unavailable", limitations=["AI file interpretation was unavailable; deterministic checks are shown."])
+
+    if media_type.startswith("image/"):
+        limitations.append("Image OCR and visual interpretation are advisory and may omit or misread content.")
+    if not extracted_text.strip():
+        # Image interpretation may still provide useful visual analysis without OCR text.
+        limitations.append("No text was extracted; message-pattern analysis is limited to visual model observations.")
+
+    if ai_explanation is None:
+        ai_explanation = AIExplanation(status="unavailable", limitations=["AI file interpretation was unavailable; deterministic checks are shown."])
+    text_outcome = analyze_message_content(
+        extracted_text,
+        message_analyzer=message_analyzer,
+        url_analyzer=url_analyzer,
+        threat_intel_provider=threat_intel_provider,
+        ai_provider=ai_provider,
+        risk_scorer=risk_scorer,
+        ai_explanation=ai_explanation,
+    )
+    analysis = text_outcome["analysis"]
+    ai_explanation = text_outcome["ai_explanation"]
+    indicators = [str(item) for item in ai_result.get("indicators", [])]
+    key_findings = list(dict.fromkeys(
+        [item.description for item in analysis["deterministic_indicators"]]
+        + indicators
+        + [item.description for item in text_outcome["url_threat_intelligence"] if item.status.value == "matched"]
+    ))[:4]
+    if not key_findings:
+        key_findings = ["No supported security indicators were identified in the extracted content."]
+    file_result = FileAnalysisResponse(
+        filename=name,
+        media_type=media_type,
+        size_bytes=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
+        extracted_text=extracted_text,
+        content_type=ai_result.get("content_type", "unknown"),
+        classification_confidence=float(ai_result.get("classification_confidence", 0)),
+        classification_reasoning=str(ai_result.get("classification_reasoning", "")),
+        summary=str(ai_result.get("summary", "File content was extracted for security review.")),
+        key_findings=key_findings,
+        recommended_action=(ai_explanation.recommended_actions[0] if ai_explanation.recommended_actions else text_outcome["risk_assessment"].recommended_precautions[0]),
+        indicators=indicators,
+        limitations=list(dict.fromkeys(list(text_outcome["limitations"]) + limitations + list(ai_explanation.limitations))),
+        extracted_urls=analysis["extracted_urls"],
+        deterministic_indicators=analysis["deterministic_indicators"],
+        url_threat_intelligence=text_outcome["url_threat_intelligence"],
+        risk_assessment=text_outcome["risk_assessment"],
+        ai_explanation=ai_explanation,
+    )
+    return JSONResponse(content=file_result.model_dump(mode="json"))

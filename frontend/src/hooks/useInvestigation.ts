@@ -1,6 +1,12 @@
 import { useRef, useState, type FormEvent } from "react";
 import { analysisApiBaseUrl, apiUrl, isProductionApiConfigured } from "../lib/api";
-import type { AnalysisMode, FileAnalysisResponse, MessageAnalysisResponse, UrlAnalysisResponse, WebsiteAvailability } from "../types/investigation";
+import type {
+  AnalysisMode,
+  FileAnalysisResponse,
+  MessageAnalysisResponse,
+  UrlAnalysisResponse,
+  WebsiteAvailability,
+} from "../types/investigation";
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
 
@@ -25,18 +31,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function responseDetail(payload: unknown): string | null {
   if (!isRecord(payload)) return null;
-  return typeof payload.detail === "string" ? payload.detail : null;
+  if (typeof payload.detail === "string") return payload.detail;
+  if (isRecord(payload.detail) && typeof payload.detail.message === "string")
+    return payload.detail.message;
+  return null;
 }
 
-function expectedResponse(payload: unknown, mode: AnalysisMode): payload is UrlAnalysisResponse | MessageAnalysisResponse | FileAnalysisResponse {
+function expectedResponse(
+  payload: unknown,
+  mode: AnalysisMode,
+): payload is UrlAnalysisResponse | MessageAnalysisResponse | FileAnalysisResponse {
   if (!isRecord(payload)) return false;
   if (mode === "file") {
-    return typeof payload.filename === "string" && typeof payload.media_type === "string"
-      && typeof payload.size_bytes === "number" && typeof payload.sha256 === "string"
-      && typeof payload.extracted_text === "string" && typeof payload.summary === "string"
-      && Array.isArray(payload.indicators) && Array.isArray(payload.limitations);
+    return (
+      typeof payload.filename === "string" &&
+      typeof payload.media_type === "string" &&
+      typeof payload.size_bytes === "number" &&
+      typeof payload.sha256 === "string" &&
+      typeof payload.extracted_text === "string" &&
+      typeof payload.summary === "string" &&
+      typeof payload.content_type === "string" &&
+      typeof payload.classification_confidence === "number" &&
+      typeof payload.classification_reasoning === "string" &&
+      typeof payload.recommended_action === "string" &&
+      Array.isArray(payload.key_findings) &&
+      Array.isArray(payload.indicators) &&
+      Array.isArray(payload.limitations) &&
+      Array.isArray(payload.extracted_urls) &&
+      Array.isArray(payload.deterministic_indicators) &&
+      Array.isArray(payload.url_threat_intelligence) &&
+      isRecord(payload.risk_assessment) &&
+      isRecord(payload.ai_explanation)
+    );
   }
-  return mode === "url" ? isRecord(payload.url_analysis) && isRecord(payload.threat_intelligence)
+  return mode === "url"
+    ? isRecord(payload.url_analysis) && isRecord(payload.threat_intelligence)
     : isRecord(payload.ai_explanation) && Array.isArray(payload.deterministic_indicators);
 }
 
@@ -53,8 +82,20 @@ async function readJsonResponse(response: Response): Promise<unknown> {
 
 function httpErrorMessage(status: number, payload: unknown): string {
   const detail = responseDetail(payload);
-  if (status === 401 || status === 403) return "Analysis service rejected the request. Check production authorization configuration.";
-  if (status === 404) return "Analysis endpoint was not found. Check the production API URL and deployment route.";
+  if (isRecord(payload) && isRecord(payload.detail) && payload.detail.code === "model_capability") {
+    return "The configured analysis model does not support this image format. Try another image or contact the service administrator.";
+  }
+  if (
+    isRecord(payload) &&
+    isRecord(payload.detail) &&
+    payload.detail.code === "malformed_provider_response"
+  ) {
+    return "The analysis service returned an unexpected result. Try again with another file.";
+  }
+  if (status === 401 || status === 403)
+    return "Analysis service rejected the request. Check production authorization configuration.";
+  if (status === 404)
+    return "Analysis endpoint was not found. Check the production API URL and deployment route.";
   if (status >= 500) return "Analysis service failed while processing the request.";
   return detail ?? `Analysis request failed (HTTP ${status}).`;
 }
@@ -72,7 +113,6 @@ export function useInvestigation() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [detailedOpen, setDetailedOpen] = useState(false);
-  const [riskEvidenceOpen, setRiskEvidenceOpen] = useState(false);
   const inFlightRef = useRef(false);
 
   function selectMode(nextMode: AnalysisMode) {
@@ -81,7 +121,9 @@ export function useInvestigation() {
     setError("");
     setResult(null);
     setMessageResult(null);
+    setFileResult(null);
     setAvailability(null);
+    setDetailedOpen(false);
   }
 
   async function analyze(event: FormEvent<HTMLFormElement>) {
@@ -91,18 +133,23 @@ export function useInvestigation() {
     setError("");
     setResult(null);
     setMessageResult(null);
+    setFileResult(null);
     setAvailability(null);
     setDetailedOpen(false);
-    setRiskEvidenceOpen(false);
 
     const content = (mode === "url" ? url : message).trim();
-    if (mode === "file" && !file) { setFileError("Please select a file to analyze."); return; }
+    if (mode === "file" && !file) {
+      setFileError("Please select a file to analyze.");
+      return;
+    }
     if (mode !== "file" && !content) {
       setError(mode === "url" ? "Enter a URL to analyze." : "Paste a message to analyze.");
       return;
     }
     if (!isProductionApiConfigured) {
-      setError("Production API URL is not configured. Set VITE_API_BASE_URL and rebuild the frontend.");
+      setError(
+        "Production API URL is not configured. Set VITE_API_BASE_URL and rebuild the frontend.",
+      );
       return;
     }
 
@@ -118,8 +165,18 @@ export function useInvestigation() {
 
     analysisLog("started", { mode });
     try {
-      analysisLog("request sent", { mode, endpoint: new URL(endpoint, window.location.origin).pathname });
-      const body = mode === "file" ? (() => { const form = new FormData(); if (file) form.append("file", file); return form; })() : JSON.stringify(mode === "url" ? { url: content } : { message: content });
+      analysisLog("request sent", {
+        mode,
+        endpoint: new URL(endpoint, window.location.origin).pathname,
+      });
+      const body =
+        mode === "file"
+          ? (() => {
+              const form = new FormData();
+              if (file) form.append("file", file);
+              return form;
+            })()
+          : JSON.stringify(mode === "url" ? { url: content } : { message: content });
       const response = await fetch(endpoint, {
         method: "POST",
         ...(mode === "file" ? {} : { headers: { "Content-Type": "application/json" } }),
@@ -128,7 +185,10 @@ export function useInvestigation() {
       });
       analysisLog("response received", { mode, status: response.status, ok: response.ok });
       const payload = await readJsonResponse(response);
-      analysisLog("response parsed", { mode, payloadType: isRecord(payload) ? "object" : typeof payload });
+      analysisLog("response parsed", {
+        mode,
+        payloadType: isRecord(payload) ? "object" : typeof payload,
+      });
 
       if (!response.ok) {
         throw new AnalysisClientError(httpErrorMessage(response.status, payload));
@@ -137,7 +197,8 @@ export function useInvestigation() {
         const status = payload.availability.status;
         if (["not_found", "unreachable", "error"].includes(String(status))) {
           setAvailability(payload.availability as unknown as WebsiteAvailability);
-          if (status === "error") setError("Website availability could not be determined. Please retry the analysis.");
+          if (status === "error")
+            setError("Website availability could not be determined. Please retry the analysis.");
           analysisLog("completed", { mode, status });
           return;
         }
@@ -147,7 +208,8 @@ export function useInvestigation() {
       }
 
       if (mode === "url" && "url_analysis" in payload) setResult(payload);
-      else if (mode === "message" && "ai_explanation" in payload) setMessageResult(payload);
+      else if (mode === "message" && "ai_explanation" in payload && !("filename" in payload))
+        setMessageResult(payload);
       else if (mode === "file" && "sha256" in payload) setFileResult(payload);
       else throw new AnalysisClientError("Analysis service returned an unexpected response.");
       analysisLog("completed", { mode, status: "success" });
@@ -160,7 +222,9 @@ export function useInvestigation() {
         setError(caughtError.message);
       } else {
         analysisLog("failed", { mode, reason: "network or CORS failure" });
-        setError("Unable to reach the analysis service. Check the production API URL and CORS configuration.");
+        setError(
+          "Unable to reach the analysis service. Check the production API URL and CORS configuration.",
+        );
       }
     } finally {
       window.clearTimeout(timeoutId);
@@ -170,8 +234,25 @@ export function useInvestigation() {
   }
 
   return {
-    mode, selectMode, url, setUrl, message, setMessage, file, setFile, fileError, setFileError, fileResult, messageResult, result, availability, error, loading,
-    detailedOpen, setDetailedOpen, riskEvidenceOpen, setRiskEvidenceOpen, analyze,
+    mode,
+    selectMode,
+    url,
+    setUrl,
+    message,
+    setMessage,
+    file,
+    setFile,
+    fileError,
+    setFileError,
+    fileResult,
+    messageResult,
+    result,
+    availability,
+    error,
+    loading,
+    detailedOpen,
+    setDetailedOpen,
+    analyze,
     apiBaseUrl: analysisApiBaseUrl,
   };
 }

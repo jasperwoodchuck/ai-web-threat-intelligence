@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.analyzers.dns import DnsAnalyzer
 from app.analyzers.phishing import PhishingAnalyzer
+from app.analyzers.reachability import ReachabilityResult
 from app.models.dns import DnsAnalysisResult
 from app.models.http import HttpAnalysisResult
 from app.models.phishing import FraudUrlSignal, PhishingAnalysisResult
@@ -96,6 +97,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(main, "http_analyzer", FakeHttpAnalyzer())
+    monkeypatch.setattr(main, "reachability_checker", SimpleNamespace(check=lambda *_: ReachabilityResult("reachable", "Website is reachable.", "Mock server responded.", 200)))
     monkeypatch.setattr(
         main,
         "threat_intel_provider",
@@ -115,6 +117,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     assert response.status_code == 200
     body = response.json()
     assert set(body) == {
+        "availability",
         "url_analysis",
         "dns_analysis",
         "phishing_analysis",
@@ -124,6 +127,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
         "http_analysis",
         "threat_intelligence",
     }
+    assert body["availability"]["status"] == "reachable"
     assert body["url_analysis"]["is_valid"] is True
     assert body["url_analysis"]["normalized_url"] == "https://example.com/login"
     assert body["url_analysis"]["registered_domain"] == "example.com"
@@ -200,6 +204,7 @@ def test_yovtube_reaches_phishing_and_risk_analysis_through_api(monkeypatch) -> 
     )
     monkeypatch.setattr(main, "tls_analyzer", FakeTlsAnalyzer())
     monkeypatch.setattr(main, "http_analyzer", FakeHttpAnalyzer())
+    monkeypatch.setattr(main, "reachability_checker", SimpleNamespace(check=lambda *_: ReachabilityResult("reachable", "Website is reachable.", "Mock server responded.", 200)))
     monkeypatch.setattr(
         main,
         "threat_intel_provider",

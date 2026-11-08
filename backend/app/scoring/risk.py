@@ -505,6 +505,7 @@ class RiskScorer:
             "sensitive_information_request": 20,
             "impersonation": 22,
             "suspicious_link_present": 10,
+            "attachment_reference": 6,
         }
         signals: list[_RiskSignal] = []
         limitations = [

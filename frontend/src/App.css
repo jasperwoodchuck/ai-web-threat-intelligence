@@ -412,6 +412,17 @@
 .evidence-content strong { display: block; margin-top: 5px; color: var(--text-heading); font-size: 12px; }
 .evidence-content p { margin: 3px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .report-footer { margin-top: 14px; color: var(--text-faint); font-size: 12px; text-align: center; }
+.unified-report { display: grid; gap: 16px; }
+.unified-report .report-heading { margin-bottom: 0; }
+.unified-report .risk-hero { margin-top: 0; }
+.unified-report .summary-findings, .unified-report .summary-overview { margin-top: 0; }
+.unified-report .key-findings-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.content-type-label { display: flex; align-items: center; gap: 9px; color: var(--text-muted); font-size: 13px; }
+.analysis-recommendation { margin: 0; border: 1px solid var(--success-border); }
+.analysis-recommendation p { margin: 9px 0 0 28px; color: var(--text-secondary); font-size: 14px; line-height: 1.55; }
+.unified-report .technical-details { margin-top: 0; }
+.unified-report .analysis-grid { padding-top: 9px; }
+.unified-report .report-footer { margin-top: 0; }
 .site-footer { display: flex; justify-content: space-between; gap: 18px; width: min(1080px, calc(100% - 40px)); margin: 0 auto; padding: 18px 0 26px; border-top: 1px solid var(--border-subtle); color: var(--text-faint); font-size: 12px; }
 
 @media (max-width: 800px) {
@@ -477,6 +488,7 @@
   .risk-heading > .pill { display: none; }
   .risk-summary, .risk-meter-wrap { margin-left: 0; }
   .key-findings-list { grid-template-columns: 1fr; }
+  .unified-report .key-findings-list { grid-template-columns: 1fr; }
   .overview-grid { gap: 6px; }
   .overview-card { min-height: 100px; padding: 10px; }
   .technical-summary-action { display: none; }

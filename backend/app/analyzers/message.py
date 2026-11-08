@@ -14,6 +14,7 @@ _PATTERNS: tuple[tuple[str, str, str, str], ...] = (
     ("credential_request", r"\b(password|passcode|one[- ]time\s+(?:password|code)|\botp\b|verification\s+code|login\s+credentials|security\s+code)\b", "high", "The message refers to passwords, credentials, or one-time codes."),
     ("sensitive_information_request", r"\b(social\s+security|\bssn\b|bank\s+details|card\s+(?:number|details)|date\s+of\s+birth|private\s+key|seed\s+phrase|identity\s+documents?)\b", "high", "The message requests or refers to sensitive personal or financial information."),
     ("impersonation", r"\b(we\s+are\s+(?:your\s+)?(?:bank|banking|it\s+support|technical\s+support|government|police|tax\s+office)|(?:bank|paypal|microsoft|apple|amazon|irs|tax\s+office)\s+(?:security|support|team|department)|on\s+behalf\s+of\s+(?:your\s+)?(?:bank|company|government))\b", "high", "The sender claims an organizational or authority identity that has not been verified."),
+    ("attachment_reference", r"\b(?:attached (?:file|document|image|invoice)|see attached|open the (?:attached )?(?:file|document)|attachment included)\b", "medium", "The message refers to an attachment that has not been inspected."),
 )
 
 

@@ -39,8 +39,6 @@ function App() {
         loading={investigation.loading}
         detailedOpen={investigation.detailedOpen}
         setDetailedOpen={investigation.setDetailedOpen}
-        riskEvidenceOpen={investigation.riskEvidenceOpen}
-        setRiskEvidenceOpen={investigation.setRiskEvidenceOpen}
       />
     </main>
   </div>;

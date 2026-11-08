@@ -55,3 +55,27 @@ def test_malformed_envelope_and_structured_output_fail_gracefully(monkeypatch) -
     assert provider.explain("x", [], []).status == "unavailable"
     monkeypatch.setattr("app.ai.openrouter.urlopen", lambda *_args, **_kwargs: response(json.dumps({"summary": "incomplete"})))
     assert provider.explain("x", [], []).status == "unavailable"
+
+
+def test_image_and_text_inspection_use_the_same_configured_model(monkeypatch) -> None:
+    captured_models = []
+    structured = {
+        "extracted_text": "Visible notice",
+        "content_type": "notification",
+        "classification_confidence": 0.82,
+        "classification_reasoning": "Notification layout detected.",
+        "summary": "A notification is shown.",
+        "indicators": [],
+        "recommended_action": "Verify independently.",
+        "limitations": [],
+    }
+
+    def fake_urlopen(request, timeout):
+        captured_models.append(json.loads(request.data)["model"])
+        return response(json.dumps(structured))
+
+    monkeypatch.setattr("app.ai.openrouter.urlopen", fake_urlopen)
+    provider = OpenRouterProvider("shared-key", "shared-model")
+    assert provider.inspect_text("Visible notice")["content_type"] == "notification"
+    assert provider.inspect_image(bytes([137, 80, 78, 71, 13, 10, 26, 10]), "image/png")["content_type"] == "notification"
+    assert captured_models == ["shared-model", "shared-model"]
