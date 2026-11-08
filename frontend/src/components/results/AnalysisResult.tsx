@@ -509,101 +509,97 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
           Content type <Badge tone="info">{result.contentType}</Badge>
         </div>
       )}
-      <div className="analysis-summary-layout">
-        <div className="analysis-summary-primary">
-          <section
-            className={`risk-hero risk-${riskTone} risk-hero-interactive`}
-            role="button"
-            tabIndex={0}
-            aria-haspopup="dialog"
-            aria-label={`Overall verdict: ${result.risk.classification}. Open risk assessment details.`}
-            onClick={openRiskDetails}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                openRiskDetails();
-              }
-            }}
-          >
-            <div className="risk-main">
-              <div className="risk-heading">
-                <div className="section-icon risk-icon" aria-hidden="true">
-                  !
-                </div>
-                <div>
-                  <p className="eyebrow">OVERALL VERDICT</p>
-                  <h2>{result.risk.classification}</h2>
-                </div>
-                <Badge tone={riskTone}>{result.risk.classification}</Badge>
-                <span className="analysis-expand-icon" aria-hidden="true" title="Open risk details">
-                  ↗
-                </span>
-              </div>
-              <div className="risk-meter-wrap">
-                <div className="risk-meter-label">
-                  <span>Risk score</span>
-                  <span>
-                    {result.risk.score} <small>/ 100</small>
-                  </span>
-                </div>
-                <progress
-                  className={`risk-meter meter-${riskTone}`}
-                  max="100"
-                  value={result.risk.score}
-                  aria-label={`Risk score ${result.risk.score} out of 100`}
-                />
-              </div>
+      <section
+        className={`risk-hero risk-${riskTone} risk-hero-interactive`}
+        role="button"
+        tabIndex={0}
+        aria-haspopup="dialog"
+        aria-label={`Overall verdict: ${result.risk.classification}. Open risk assessment details.`}
+        onClick={openRiskDetails}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openRiskDetails();
+          }
+        }}
+      >
+        <div className="risk-main">
+          <div className="risk-heading">
+            <div className="section-icon risk-icon" aria-hidden="true">
+              !
             </div>
-            <div className="risk-side-metrics">
-              <div className="risk-stat">
-                <span className="stat-label">Confidence</span>
-                <strong>
-                  {Math.round(result.risk.confidence * 100)}
-                  <small>%</small>
-                </strong>
-              </div>
-              <div className="risk-stat">
-                <span className="stat-label">Signals</span>
-                <strong>{result.risk.contributing_indicators.length}</strong>
-              </div>
+            <div>
+              <p className="eyebrow">OVERALL VERDICT</p>
+              <h2>{result.risk.classification}</h2>
             </div>
-          </section>
-          <section className="summary-findings">
-            <div className="summary-section-heading">
-              <div>
-                <p className="eyebrow">PRIORITY EVIDENCE</p>
-                <h3>Key findings</h3>
-              </div>
+            <Badge tone={riskTone}>{result.risk.classification}</Badge>
+            <span className="analysis-expand-icon" aria-hidden="true" title="Open risk details">
+              ↗
+            </span>
+          </div>
+          <div className="risk-meter-wrap">
+            <div className="risk-meter-label">
+              <span>Risk score</span>
+              <span>
+                {result.risk.score} <small>/ 100</small>
+              </span>
             </div>
-            <ul className="key-findings-list">
-              {result.findings.slice(0, 4).map((item, index) => (
-                <FindingCard finding={item} key={`${item.title}-${index}`} onOpen={openDetail} />
-              ))}
-            </ul>
-          </section>
-          <section className="notice-card notice-precautions analysis-recommendation">
-            <div className="notice-heading">
-              <span aria-hidden="true">✓</span>
-              <h3>Recommended action</h3>
-            </div>
-            <p>{result.recommendation}</p>
-          </section>
-          <section className="summary-overview">
-            <div className="summary-section-heading">
-              <div>
-                <p className="eyebrow">AT A GLANCE</p>
-                <h3>Security checks</h3>
-              </div>
-            </div>
-            <div className="overview-grid">
-              {result.checks.map((check) => (
-                <SecurityCheckCard check={check} key={check.title} onOpen={openDetail} />
-              ))}
-            </div>
-          </section>
+            <progress
+              className={`risk-meter meter-${riskTone}`}
+              max="100"
+              value={result.risk.score}
+              aria-label={`Risk score ${result.risk.score} out of 100`}
+            />
+          </div>
         </div>
-        <AiOverviewCard overview={result.aiOverview} />
-      </div>
+        <div className="risk-side-metrics">
+          <div className="risk-stat">
+            <span className="stat-label">Confidence</span>
+            <strong>
+              {Math.round(result.risk.confidence * 100)}
+              <small>%</small>
+            </strong>
+          </div>
+          <div className="risk-stat">
+            <span className="stat-label">Signals</span>
+            <strong>{result.risk.contributing_indicators.length}</strong>
+          </div>
+        </div>
+      </section>
+      <AiOverviewCard overview={result.aiOverview} />
+      <section className="summary-findings">
+        <div className="summary-section-heading">
+          <div>
+            <p className="eyebrow">PRIORITY EVIDENCE</p>
+            <h3>Key findings</h3>
+          </div>
+        </div>
+        <ul className="key-findings-list">
+          {result.findings.slice(0, 4).map((item, index) => (
+            <FindingCard finding={item} key={`${item.title}-${index}`} onOpen={openDetail} />
+          ))}
+        </ul>
+      </section>
+      <section className="notice-card notice-precautions analysis-recommendation">
+        <div className="notice-heading">
+          <span aria-hidden="true">✓</span>
+          <h3>Recommended action</h3>
+        </div>
+        <p>{result.recommendation}</p>
+      </section>
+      <section className="summary-overview">
+        <div className="summary-section-heading">
+          <div>
+            <p className="eyebrow">AT A GLANCE</p>
+            <h3>Security checks</h3>
+          </div>
+        </div>
+        <div className="overview-grid">
+          {result.checks.map((check) => (
+            <SecurityCheckCard check={check} key={check.title} onOpen={openDetail} />
+          ))}
+        </div>
+      </section>
       {selectedCheck && <AnalysisDetailModal detail={selectedCheck} onClose={closeDetail} />}
     </>
   );
