@@ -49,7 +49,18 @@
 .privacy-icon svg { width: 17px; height: 17px; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
 .analysis-card { position: relative; margin-top: 30px; padding: 25px 27px 22px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent-blue) 25%, var(--border-default)); border-radius: 0; background: linear-gradient(130deg, var(--surface-card-solid), var(--surface-card) 62%, rgba(118, 92, 218, .07)); box-shadow: 0 16px 42px var(--shadow-color); }
-.analysis-card::before { position: absolute; top: -100px; right: -55px; width: 260px; height: 260px; border: 1px solid rgba(67, 115, 222, .14); border-radius: 0; box-shadow: 0 0 0 22px rgba(67, 115, 222, .035), 0 0 0 50px rgba(67, 115, 222, .02); content: ""; pointer-events: none; }
+.analysis-card::before { display: none; }
+.analysis-atmosphere { position: absolute; top: 2px; right: 4px; width: 260px; height: 150px; opacity: .42; pointer-events: none; }
+.analysis-atmosphere svg { width: 100%; height: 100%; overflow: visible; }
+.atmosphere-edge { stroke: var(--accent-blue); stroke-width: 1; opacity: .3; vector-effect: non-scaling-stroke; }
+.atmosphere-edge-muted { stroke: var(--accent); opacity: .16; stroke-dasharray: 3 5; }
+.atmosphere-node { stroke: var(--surface-card-solid); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.atmosphere-node-cyan { fill: var(--accent); }
+.atmosphere-node-blue { fill: var(--accent-blue); }
+.atmosphere-node-violet { fill: var(--accent-violet); }
+.atmosphere-node-amber { fill: var(--warning-text); }
+.atmosphere-core { fill: var(--surface-card-solid); stroke: var(--accent); stroke-width: 1; filter: drop-shadow(0 0 9px rgba(65, 190, 199, .2)); vector-effect: non-scaling-stroke; }
+.atmosphere-core-mark { stroke: var(--accent); stroke-width: 1.2; stroke-linecap: square; vector-effect: non-scaling-stroke; }
 .analysis-card-heading, .analysis-actions, .input-label-row, .analysis-supporting-text, .message-report-heading, .result-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .analysis-card-heading { position: relative; z-index: 1; }
 .analysis-card-heading h2 { margin: 0; color: var(--text-heading); font-size: 21px; letter-spacing: -.025em; }
