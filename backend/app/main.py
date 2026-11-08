@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException
+import hashlib
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.openrouter import OpenRouterProvider
@@ -129,3 +130,53 @@ def analyze_message(request: MessageAnalysisRequest) -> MessageAnalysisResponse:
         limitations.append("No HTTP/HTTPS URLs were extracted for threat-intelligence lookup.")
     limitations.append("When enabled, the submitted message is sent to OpenRouter for advisory interpretation.")
     return MessageAnalysisResponse(**analysis, url_threat_intelligence=intel_results, risk_assessment=risk, ai_explanation=ai_explanation, limitations=list(dict.fromkeys(limitations)))
+
+
+@app.post("/api/v1/analyze/file")
+async def analyze_file(file: UploadFile = File(...)) -> dict[str, object]:
+    allowed = {
+        ".jpg": ("image/jpeg", "image/jpeg"), ".jpeg": ("image/jpeg", "image/jpeg"),
+        ".png": ("image/png", "image/png"), ".webp": ("image/webp", "image/webp"),
+        ".pdf": ("application/pdf", "application/pdf"), ".txt": ("text/plain", "text/plain"),
+    }
+    name = (file.filename or "upload").replace("\\", "_").replace("/", "_")[:180]
+    suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    expected = allowed.get(suffix)
+    if expected is None:
+        raise HTTPException(status_code=415, detail="This file type isn't supported.")
+    data = await file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="The file is too large. Maximum size is 10 MB.")
+    media_type, signature = expected
+    valid = (
+        (signature == "image/jpeg" and data.startswith(b"\xff\xd8\xff")) or
+        (signature == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n")) or
+        (signature == "image/webp" and data.startswith(b"RIFF") and data[8:12] == b"WEBP") or
+        (signature == "application/pdf" and data.startswith(b"%PDF-")) or
+        (signature == "text/plain" and b"\x00" not in data)
+    )
+    if not valid or not data:
+        raise HTTPException(status_code=400, detail="Unable to read this file. Try another file.")
+    if file.content_type and file.content_type != media_type:
+        raise HTTPException(status_code=415, detail="The file type does not match its contents.")
+    result: dict[str, object] = {
+        "filename": name, "media_type": media_type, "size_bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "extracted_text": "", "summary": "", "indicators": [],
+        "limitations": ["AI image interpretation is advisory and may omit or misread text."],
+    }
+    if media_type.startswith("image/"):
+        try:
+            result.update(ai_provider.inspect_image(data, media_type))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Image analysis is temporarily unavailable.") from exc
+    elif media_type == "text/plain":
+        try:
+            result["extracted_text"] = data.decode("utf-8-sig")[:30_000]
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Unable to read this text file.") from exc
+        result["summary"] = "Text extracted from the uploaded file."
+    else:
+        result["limitations"] = ["PDF text extraction is not enabled; file metadata and integrity were checked."]
+        result["summary"] = "PDF metadata and integrity checked. OCR is currently available for image files."
+    return result

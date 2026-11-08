@@ -10,7 +10,7 @@ function App() {
   const { theme, selectTheme } = useTheme();
   const investigation = useInvestigation();
 
-  const hasInvestigationContent = investigation.loading || investigation.error || investigation.availability || investigation.result || investigation.messageResult;
+  const hasInvestigationContent = investigation.loading || investigation.error || investigation.availability || investigation.result || investigation.messageResult || investigation.fileResult;
 
   return <div className={`app-shell${hasInvestigationContent ? " has-investigation-content" : " is-initial"}`}>
     <Header theme={theme} onThemeChange={selectTheme} />
@@ -22,12 +22,17 @@ function App() {
         onUrlChange={investigation.setUrl}
         message={investigation.message}
         onMessageChange={investigation.setMessage}
+        file={investigation.file}
+        onFileChange={investigation.setFile}
+        fileError={investigation.fileError}
+        onFileError={investigation.setFileError}
         loading={investigation.loading}
         onSubmit={investigation.analyze}
       />
       <InvestigationResults
         result={investigation.result}
         availability={investigation.availability}
+        fileResult={investigation.fileResult}
         messageResult={investigation.messageResult}
         error={investigation.error}
         loading={investigation.loading}

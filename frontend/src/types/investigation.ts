@@ -1,9 +1,10 @@
 export type Tone = "neutral" | "good" | "warning" | "danger" | "info";
 export type Theme = "light" | "dark";
-export type AnalysisMode = "url" | "message";
+export type AnalysisMode = "url" | "message" | "file";
 export type WebsiteStatus = "reachable" | "not_found" | "unreachable" | "error";
 export interface WebsiteAvailability { status: WebsiteStatus; message: string; details: string; domain: string; http_status: number | null; }
 export interface UrlAvailabilityResponse { availability: WebsiteAvailability; }
+export interface FileAnalysisResponse { filename: string; media_type: string; size_bytes: number; sha256: string; extracted_text: string; summary: string; indicators: string[]; limitations: string[]; }
 
 export interface UrlAnalysis {
   original_url: string;

@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { analysisApiBaseUrl, apiUrl, isProductionApiConfigured } from "../lib/api";
-import type { AnalysisMode, MessageAnalysisResponse, UrlAnalysisResponse, WebsiteAvailability } from "../types/investigation";
+import type { AnalysisMode, FileAnalysisResponse, MessageAnalysisResponse, UrlAnalysisResponse, WebsiteAvailability } from "../types/investigation";
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
 
@@ -28,10 +28,15 @@ function responseDetail(payload: unknown): string | null {
   return typeof payload.detail === "string" ? payload.detail : null;
 }
 
-function expectedResponse(payload: unknown, mode: AnalysisMode): payload is UrlAnalysisResponse | MessageAnalysisResponse {
-  if (!isRecord(payload) || !isRecord(payload.risk_assessment)) return false;
-  return mode === "url"
-    ? isRecord(payload.url_analysis) && isRecord(payload.threat_intelligence)
+function expectedResponse(payload: unknown, mode: AnalysisMode): payload is UrlAnalysisResponse | MessageAnalysisResponse | FileAnalysisResponse {
+  if (!isRecord(payload)) return false;
+  if (mode === "file") {
+    return typeof payload.filename === "string" && typeof payload.media_type === "string"
+      && typeof payload.size_bytes === "number" && typeof payload.sha256 === "string"
+      && typeof payload.extracted_text === "string" && typeof payload.summary === "string"
+      && Array.isArray(payload.indicators) && Array.isArray(payload.limitations);
+  }
+  return mode === "url" ? isRecord(payload.url_analysis) && isRecord(payload.threat_intelligence)
     : isRecord(payload.ai_explanation) && Array.isArray(payload.deterministic_indicators);
 }
 
@@ -58,6 +63,9 @@ export function useInvestigation() {
   const [mode, setMode] = useState<AnalysisMode>("url");
   const [url, setUrl] = useState("");
   const [message, setMessage] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState("");
+  const [fileResult, setFileResult] = useState<FileAnalysisResponse | null>(null);
   const [messageResult, setMessageResult] = useState<MessageAnalysisResponse | null>(null);
   const [result, setResult] = useState<UrlAnalysisResponse | null>(null);
   const [availability, setAvailability] = useState<WebsiteAvailability | null>(null);
@@ -88,7 +96,8 @@ export function useInvestigation() {
     setRiskEvidenceOpen(false);
 
     const content = (mode === "url" ? url : message).trim();
-    if (!content) {
+    if (mode === "file" && !file) { setFileError("Please select a file to analyze."); return; }
+    if (mode !== "file" && !content) {
       setError(mode === "url" ? "Enter a URL to analyze." : "Paste a message to analyze.");
       return;
     }
@@ -110,10 +119,11 @@ export function useInvestigation() {
     analysisLog("started", { mode });
     try {
       analysisLog("request sent", { mode, endpoint: new URL(endpoint, window.location.origin).pathname });
+      const body = mode === "file" ? (() => { const form = new FormData(); if (file) form.append("file", file); return form; })() : JSON.stringify(mode === "url" ? { url: content } : { message: content });
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "url" ? { url: content } : { message: content }),
+        ...(mode === "file" ? {} : { headers: { "Content-Type": "application/json" } }),
+        body,
         signal: controller.signal,
       });
       analysisLog("response received", { mode, status: response.status, ok: response.ok });
@@ -136,8 +146,10 @@ export function useInvestigation() {
         throw new AnalysisClientError("Analysis service returned an unexpected response.");
       }
 
-      if (mode === "url") setResult(payload as UrlAnalysisResponse);
-      else setMessageResult(payload as MessageAnalysisResponse);
+      if (mode === "url" && "url_analysis" in payload) setResult(payload);
+      else if (mode === "message" && "ai_explanation" in payload) setMessageResult(payload);
+      else if (mode === "file" && "sha256" in payload) setFileResult(payload);
+      else throw new AnalysisClientError("Analysis service returned an unexpected response.");
       analysisLog("completed", { mode, status: "success" });
     } catch (caughtError) {
       if (timedOut) {
@@ -158,7 +170,7 @@ export function useInvestigation() {
   }
 
   return {
-    mode, selectMode, url, setUrl, message, setMessage, messageResult, result, availability, error, loading,
+    mode, selectMode, url, setUrl, message, setMessage, file, setFile, fileError, setFileError, fileResult, messageResult, result, availability, error, loading,
     detailedOpen, setDetailedOpen, riskEvidenceOpen, setRiskEvidenceOpen, analyze,
     apiBaseUrl: analysisApiBaseUrl,
   };

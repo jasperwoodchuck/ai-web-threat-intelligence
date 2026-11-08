@@ -2,7 +2,7 @@ import { EmptyState } from "../ui/EmptyState";
 import { ErrorState } from "../ui/ErrorState";
 import { LoadingState } from "../ui/LoadingState";
 import { Badge as Pill } from "../ui/Badge";
-import type { MessageAnalysisResponse, UrlAnalysisResponse, WebsiteAvailability } from "../../types/investigation";
+import type { FileAnalysisResponse, MessageAnalysisResponse, UrlAnalysisResponse, WebsiteAvailability } from "../../types/investigation";
 import { ValueList } from "./ResultPrimitives";
 import { UrlInvestigationReport } from "./UrlInvestigationReport";
 import { toneForRisk } from "../../lib/analysis";
@@ -10,6 +10,7 @@ import { toneForRisk } from "../../lib/analysis";
 type InvestigationResultsProps = {
   result: UrlAnalysisResponse | null;
   availability: WebsiteAvailability | null;
+  fileResult: FileAnalysisResponse | null;
   messageResult: MessageAnalysisResponse | null;
   error: string;
   loading: boolean;
@@ -19,7 +20,7 @@ type InvestigationResultsProps = {
   setRiskEvidenceOpen: (open: boolean) => void;
 };
 
-export function InvestigationResults({ result, availability, messageResult, error, loading, detailedOpen, setDetailedOpen, riskEvidenceOpen, setRiskEvidenceOpen }: InvestigationResultsProps) {
+export function InvestigationResults({ result, availability, fileResult, messageResult, error, loading, detailedOpen, setDetailedOpen, riskEvidenceOpen, setRiskEvidenceOpen }: InvestigationResultsProps) {
 
   return <>
         {availability && <section className={`availability-card availability-${availability.status}`} role="status" aria-live="polite">
@@ -35,6 +36,14 @@ export function InvestigationResults({ result, availability, messageResult, erro
         {error && !availability && <ErrorState message={error} />}
 
         {loading && <LoadingState />}
+        {fileResult && !loading && <section className="message-report file-report" aria-live="polite">
+          <div className="message-report-heading"><div><p className="eyebrow">FILE ANALYSIS</p><h2>Image analysis and OCR</h2></div><span className="report-target">{fileResult.filename}</span></div>
+          <section className="result-section file-result-summary"><h3>Analysis summary</h3><p>{fileResult.summary || "File inspected."}</p></section>
+          <section className="result-section"><h3>Extracted text</h3><pre className="ocr-output">{fileResult.extracted_text || "No readable text was identified."}</pre></section>
+          <section className="result-section"><h3>Visual indicators</h3>{fileResult.indicators.length ? <ul className="file-indicator-list">{fileResult.indicators.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p className="empty-note">No additional visual indicators reported.</p>}</section>
+          <section className="result-section"><h3>File metadata</h3><div className="file-metadata-grid"><div><span>Type</span><strong>{fileResult.media_type}</strong></div><div><span>Size</span><strong>{(fileResult.size_bytes / 1024 / 1024).toFixed(2)} MB</strong></div><div><span>SHA-256</span><strong>{fileResult.sha256}</strong></div></div></section>
+          {!!fileResult.limitations.length && <section className="result-section"><h3>Analysis limitations</h3><ValueList items={fileResult.limitations}/></section>}
+        </section>}
 
         {messageResult && !loading && (
           <section className="message-report" aria-live="polite">
@@ -97,7 +106,7 @@ export function InvestigationResults({ result, availability, messageResult, erro
           </section>
         )}
 
-        {!result && !messageResult && !availability && !loading && !error && <EmptyState />}
+        {!result && !messageResult && !fileResult && !availability && !loading && !error && <EmptyState />}
 
         {result && <UrlInvestigationReport result={result} detailedOpen={detailedOpen} setDetailedOpen={setDetailedOpen} riskEvidenceOpen={riskEvidenceOpen} setRiskEvidenceOpen={setRiskEvidenceOpen} />}
   </>;
