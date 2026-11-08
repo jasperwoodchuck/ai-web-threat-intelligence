@@ -198,6 +198,39 @@ interface UrlAnalysisResponse {
   threat_intelligence: ThreatIntelligenceResult;
 }
 
+interface MessageIndicator {
+  category: string;
+  severity: string;
+  description: string;
+  evidence: string;
+}
+
+interface MessageAnalysisResponse {
+  extracted_urls: string[];
+  extracted_email_addresses: string[];
+  extracted_phone_numbers: string[];
+  deterministic_indicators: MessageIndicator[];
+  url_threat_intelligence: {
+    status: string;
+    source: string;
+    indicator: string;
+    match_scope: string | null;
+    threat_type: string | null;
+  }[];
+  risk_assessment: RiskAssessment;
+  ai_explanation: {
+    status: string;
+    summary: string | null;
+    suspicious_indicators: string[];
+    evidence: string[];
+    recommended_actions: string[];
+    limitations: string[];
+    confidence: number | null;
+    advisory_note: string;
+  };
+  limitations: string[];
+}
+
 interface KeyValue {
   label: string;
   value: unknown;
@@ -493,6 +526,10 @@ function App() {
     return initialTheme;
   });
   const [url, setUrl] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageResult, setMessageResult] = useState<MessageAnalysisResponse | null>(null);
+  const [messageError, setMessageError] = useState("");
+  const [messageLoading, setMessageLoading] = useState(false);
   const [result, setResult] = useState<UrlAnalysisResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -535,6 +572,40 @@ function App() {
       setError("Could not reach the analysis service.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleAnalyzeMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessageError("");
+    setMessageResult(null);
+    if (!message.trim()) {
+      setMessageError("Paste a message to analyze.");
+      return;
+    }
+    setMessageLoading(true);
+    try {
+      const response = await fetch("/api/v1/analyze/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const payload: unknown = await response.json();
+      if (!response.ok) {
+        const detail =
+          typeof payload === "object" && payload !== null && "detail" in payload
+            ? payload.detail
+            : null;
+        setMessageError(
+          typeof detail === "string" ? detail : `Analysis failed (${response.status}).`,
+        );
+        return;
+      }
+      setMessageResult(payload as MessageAnalysisResponse);
+    } catch {
+      setMessageError("Could not reach the analysis service.");
+    } finally {
+      setMessageLoading(false);
     }
   }
 
@@ -645,6 +716,113 @@ function App() {
             <span>Analysis may take a few seconds</span>
           </div>
         </form>
+
+        <section className="message-workflow" aria-labelledby="message-analysis-title">
+          <p className="eyebrow">MESSAGE INVESTIGATION</p>
+          <h2 id="message-analysis-title">Analyze a suspicious message</h2>
+          <p>
+            Deterministic checks run first. Optional AI interpretation is advisory, not verified
+            threat intelligence.
+          </p>
+          <form onSubmit={handleAnalyzeMessage}>
+            <label htmlFor="message-input">Message, email, or notification</label>
+            <textarea
+              id="message-input"
+              maxLength={20000}
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              rows={6}
+              placeholder="Paste the message here…"
+            />
+            <div className="form-footnote">
+              <span>{message.length.toLocaleString()} / 20,000 characters</span>
+              <span>Message content may be sent to OpenRouter when configured</span>
+            </div>
+            <button type="submit" disabled={messageLoading}>
+              {messageLoading ? "Analyzing message…" : "Analyze message"}
+            </button>
+          </form>
+          {messageError && (
+            <div className="alert alert-danger" role="alert">
+              {messageError}
+            </div>
+          )}
+          {messageLoading && (
+            <div className="loading-card" role="status">
+              Analyzing deterministic signals and optional AI explanation…
+            </div>
+          )}
+          {messageResult && (
+            <div className="message-result" aria-live="polite">
+              <h3>
+                {messageResult.risk_assessment.classification} ·{" "}
+                {messageResult.risk_assessment.score}/100
+              </h3>
+              <p>
+                Confidence {Math.round(messageResult.risk_assessment.confidence * 100)}%. Suspicious
+                language is not proof of fraud.
+              </p>
+              <h4>Extracted indicators</h4>
+              <ValueList
+                items={[
+                  ...messageResult.extracted_urls,
+                  ...messageResult.extracted_email_addresses,
+                  ...messageResult.extracted_phone_numbers,
+                ]}
+              />
+              <h4>Deterministic observations</h4>
+              {messageResult.deterministic_indicators.length ? (
+                <ul>
+                  {messageResult.deterministic_indicators.map((item, index) => (
+                    <li key={`${item.category}-${index}`}>
+                      <strong>{item.description}</strong>
+                      <p>{item.evidence}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No listed deterministic indicators were observed.</p>
+              )}
+              <h4>URL threat intelligence</h4>
+              {messageResult.url_threat_intelligence.length ? (
+                <ul>
+                  {messageResult.url_threat_intelligence.map((item, index) => (
+                    <li key={`${item.indicator}-${index}`}>
+                      {item.source}: {item.status}
+                      {item.match_scope ? ` (${item.match_scope})` : ""} — {item.indicator}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No URLs were available to check.</p>
+              )}
+              <h4>AI interpretation · {messageResult.ai_explanation.status}</h4>
+              <p>{messageResult.ai_explanation.advisory_note}</p>
+              <p>
+                {messageResult.ai_explanation.summary ??
+                  "No AI explanation available; deterministic analysis is preserved."}
+              </p>
+              <h4>AI interpretation evidence</h4>
+              <ValueList
+                items={messageResult.ai_explanation.evidence}
+                empty="No AI evidence available"
+              />
+              <h4>AI suggested indicators</h4>
+              <ValueList
+                items={messageResult.ai_explanation.suspicious_indicators}
+                empty="No AI indicators suggested"
+              />
+              <ValueList
+                items={messageResult.ai_explanation.recommended_actions}
+                empty="No AI recommendations available"
+              />
+              <h4>Recommended precautions</h4>
+              <ValueList items={messageResult.risk_assessment.recommended_precautions} />
+              <h4>Limitations</h4>
+              <ValueList items={messageResult.limitations} />
+            </div>
+          )}
+        </section>
 
         {error && (
           <div className="alert alert-danger" role="alert">

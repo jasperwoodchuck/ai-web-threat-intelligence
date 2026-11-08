@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.models.dns import DnsAnalysisResult
 from app.models.http import HttpAnalysisResult
@@ -18,6 +19,9 @@ from app.models.risk import RiskAssessment, RiskClassification, RiskEvidence
 from app.models.tls import TlsAnalysisResult
 from app.models.url import UrlAnalysisResult
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
+
+if TYPE_CHECKING:
+    from app.models.message import AIExplanation, MessageIndicator
 
 _URL_STRUCTURE_STRENGTHS = {
     "ip_hostname": 20,
@@ -486,6 +490,65 @@ class RiskScorer:
             recommended_precautions=precautions,
             limitations=list(dict.fromkeys(limitations)),
         )
+
+    def assess_message(
+        self,
+        indicators: list[MessageIndicator],
+        intelligence: list[ThreatIntelResult],
+        ai_explanation: AIExplanation,
+    ) -> RiskAssessment:
+        """Score deterministic message and URL intelligence with the shared aggregation rules."""
+        strengths = {
+            "urgency": 10,
+            "payment_request": 20,
+            "credential_request": 25,
+            "sensitive_information_request": 20,
+            "impersonation": 22,
+            "suspicious_link_present": 10,
+        }
+        signals: list[_RiskSignal] = []
+        limitations = [
+            "Suspicious language is not proof of fraud.",
+            "Absence of a threat-intelligence match is not proof that the message is safe.",
+            "AI interpretation is advisory and cannot establish a verified threat.",
+        ]
+        for item in indicators:
+            strength = strengths.get(item.category, 0)
+            signals.append(_RiskSignal(
+                evidence=RiskEvidence(source="message_analysis", indicator=item.category, severity=item.severity, weight=0, description=item.description, evidence=item.evidence),
+                strength=strength,
+                correlation_group=("message_social_engineering" if item.category in {"urgency", "payment_request", "credential_request", "sensitive_information_request", "impersonation"} else f"message:{item.category}"),
+                order=0,
+            ))
+        exact_match = False
+        for result in intelligence:
+            if result.status is ThreatIntelStatus.MATCHED and result.matched:
+                exact = result.match_scope == "url"
+                exact_match = exact_match or exact
+                factor = result.confidence if result.confidence is not None else 0.75
+                strength = (_THREAT_EXACT_STRENGTH if exact else _THREAT_HOST_STRENGTH) * factor
+                description = "Threat intelligence has an exact match for a URL extracted from the message." if exact else "Threat intelligence associates a hostname extracted from the message with a reported threat."
+                detail = f"scope={result.match_scope}; threat={result.threat_type or 'unspecified'}; confidence={factor:.2f}; reference={result.reference or 'unavailable'}; checked_at={result.checked_at.isoformat()}"
+                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="known_malicious_url" if exact else "known_malicious_host", severity="critical" if exact else "high", weight=0, description=description, evidence=detail), strength=strength, correlation_group="message_threat_intelligence", order=1))
+            elif result.status is ThreatIntelStatus.NO_MATCH:
+                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="threat_intelligence_no_match", severity="info", weight=0, description="The provider returned no match; absence of a match is not evidence that the message is safe.", evidence=f"indicator={result.indicator}; checked_at={result.checked_at.isoformat()}"), order=1))
+                limitations.append(f"{result.source} returned no match for {result.indicator}; this does not establish safety.")
+            else:
+                signals.append(_RiskSignal(evidence=RiskEvidence(source=result.source, indicator="threat_intelligence_unavailable", severity="info", weight=0, description="Threat intelligence was unavailable; provider failure adds no risk points.", evidence=result.error or result.indicator), order=1))
+                limitations.append(f"{result.source} was unavailable for an extracted URL.")
+        if not intelligence:
+            limitations.append("No URL threat-intelligence checks were available.")
+        if ai_explanation.status != "available":
+            limitations.extend(ai_explanation.limitations or ["AI explanation was unavailable."])
+        evidence, score = self._aggregate(signals)
+        classification = RiskClassification.CONFIRMED_MALICIOUS if exact_match and score >= _CONFIRMED_SCORE_THRESHOLD else self._classify(score)
+        coverage = 0.65 if ai_explanation.status != "available" else 0.85
+        if intelligence:
+            coverage = (coverage + (sum(item.status is not ThreatIntelStatus.UNAVAILABLE for item in intelligence) / len(intelligence))) / 2
+        if not indicators and not intelligence:
+            coverage = min(coverage, 0.35)
+        precautions = ["Do not reply, open links, or share credentials/payment details until you verify the sender through an independent official channel."]
+        return RiskAssessment(classification=classification, score=score, confidence=round(min(0.95, coverage), 2), contributing_indicators=evidence, recommended_precautions=precautions, limitations=list(dict.fromkeys(limitations)))
 
     @staticmethod
     def _aggregate(signals: list[_RiskSignal]) -> tuple[list[RiskEvidence], int]:

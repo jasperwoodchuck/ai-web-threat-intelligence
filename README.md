@@ -36,6 +36,35 @@ no-match result.
 For exact URL lookups, the backend removes URL credentials and fragments before sending the URL;
 the path and query remain part of the exact indicator lookup.
 
+## Message scam analysis
+
+`POST /api/v1/analyze/message` accepts `{"message":"..."}` (up to 20,000 characters).
+The deterministic analyzer extracts HTTP(S) URLs, email addresses, and phone numbers, and
+records observable urgency, payment, credential/sensitive-information, impersonation, and
+link/contact indicators. Extracted URLs are normalized and sent to URLhaus for exact URL lookup;
+a no-match may be followed by a separate hostname association lookup. The service does not fetch
+those websites or follow their redirects.
+
+Configure optional advisory explanations in `backend/.env`:
+
+```env
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=
+```
+
+The deterministic analysis and risk assessment work without OpenRouter. When configured, the
+submitted message and separate deterministic evidence are sent to OpenRouter. The system prompt
+marks message text as untrusted content and instructs the model to ignore embedded instructions.
+AI output is structured, advisory interpretation; it cannot override threat-intelligence results
+or establish `Confirmed Malicious`. Malformed or unavailable AI output does not discard
+deterministic findings.
+
+Urgent or persuasive wording is not proof of fraud. Similarly, no threat-intelligence match is
+not proof that a message or URL is safe. Provider coverage is limited to URLhaus malware reports;
+message language analysis is heuristic, and extracted email addresses and phone numbers are not
+independently verified. Avoid submitting content you do not want shared with the configured AI
+provider.
+
 ## License
 
 This project is dual-licensed under either the MIT License or the Apache License, Version 2.0, at your option.

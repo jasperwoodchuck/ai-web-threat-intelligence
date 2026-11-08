@@ -107,6 +107,56 @@
   padding: 38px 0 64px;
 }
 
+.message-workflow {
+  margin: 32px 0;
+  padding: 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface-card);
+}
+
+.message-workflow h2,
+.message-result h3 {
+  margin: 0 0 10px;
+}
+.message-workflow form {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.message-workflow textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font: inherit;
+}
+.message-workflow form > button {
+  justify-self: start;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: #116b70;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+.message-workflow button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.message-result {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+.message-result h4 {
+  margin: 20px 0 8px;
+}
+
 .intro-row,
 .report-heading,
 .panel-heading,
