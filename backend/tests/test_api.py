@@ -248,14 +248,21 @@ def test_yovtube_reaches_phishing_and_risk_analysis_through_api(monkeypatch) -> 
     assert "youtube.com" in indicator["description"]
     assert "possible_intended_site=youtube.com" in indicator["evidence"]
     assert body["typosquatting"] == {
+        "type": "typosquatting",
         "detected": True,
         "submitted_domain": "yovtube.com",
         "possible_intended_site": "youtube.com",
         "similarity": 0.86,
         "edit_distance": 1,
+        "domain": "yovtube.com",
+        "reference_domain": "youtube.com",
+        "technique": "character_substitution",
+        "severity": "medium",
+        "evidence": "'v' replaces 'u' in the domain label.",
+        "is_idn": False,
     }
     assert risk_signal["weight"] == 30
     assert risk_signal["description"] == (
-        "Domain yovtube.com closely resembles youtube.com, which is a likely typosquatting attempt."
+        "yovtube.com may impersonate youtube.com using character substitution."
     )
     assert body["risk_assessment"]["score"] == 30

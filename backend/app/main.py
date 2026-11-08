@@ -101,6 +101,9 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse | UrlAvailab
     if url_analysis.hostname is None:
         raise HTTPException(status_code=422, detail="URL must include a hostname.")
 
+    # Check local URL structure first so a non-resolving lookalike can still
+    # receive a phishing/typosquatting assessment instead of an availability-only response.
+    phishing_analysis = phishing_analyzer.analyze(url_analysis)
     reachability = reachability_checker.check(
         url_analysis.normalized_url or request.url, url_analysis.hostname
     )
@@ -109,11 +112,10 @@ def analyze_url(request: UrlAnalysisRequest) -> UrlAnalysisResponse | UrlAvailab
         details=reachability.details, domain=url_analysis.hostname,
         http_status=reachability.http_status,
     )
-    if reachability.status != "reachable":
+    if reachability.status != "reachable" and not phishing_analysis.typosquatting.detected:
         return UrlAvailabilityResponse(availability=availability)
 
     dns_analysis = dns_analyzer.analyze(url_analysis.hostname)
-    phishing_analysis = phishing_analyzer.analyze(url_analysis)
     tls_analysis = tls_analyzer.analyze(url_analysis, dns_analysis)
     http_analysis = http_analyzer.analyze(url_analysis, dns_analysis)
     threat_intelligence = threat_intel_provider.lookup(

@@ -449,6 +449,13 @@
 .report-footer { margin-top: 14px; color: var(--text-faint); font-size: 12px; text-align: center; }
 .unified-report { display: grid; gap: 16px; }
 .unified-report .report-heading { margin-bottom: 0; }
+.report-export-wrap { display: flex; align-items: center; justify-content: flex-end; gap: 9px; min-width: 0; }
+.report-export-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.report-export-button { min-height: 34px; padding: 7px 10px; border: 1px solid var(--border-subtle); border-radius: 0; background: var(--surface-card); color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; transition: border-color .16s ease, background .16s ease, color .16s ease; }
+.report-export-button:hover { border-color: var(--border-strong); background: var(--surface-card-muted); color: var(--text-heading); }
+.report-export-button.is-copied { border-color: var(--success-border); background: rgba(35, 171, 126, .08); color: var(--success-text); }
+.report-export-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.report-export-feedback { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .unified-report .risk-hero { margin-top: 0; }
 .unified-report .summary-findings, .unified-report .summary-overview { margin-top: 0; }
 .ai-overview-card { width: 100%; overflow: hidden; border: 1px solid var(--purple-border); background: linear-gradient(145deg, rgba(121, 88, 230, .1), var(--surface-card)); }

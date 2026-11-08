@@ -107,10 +107,19 @@ class PhishingAnalyzer:
         url = url_analysis.normalized_url
         hostname = url_analysis.hostname.lower()
         indicators: list[PhishingIndicator] = []
-        typosquatting = TyposquattingAnalysis()
+        typosquatting = TyposquattingAnalysis(
+            is_idn=any(label.startswith("xn--") for label in hostname.split("."))
+        )
 
-        def add(kind: str, points: int, description: str, evidence: str) -> None:
-            severity = "high" if points >= 20 else "medium" if points >= 12 else "low"
+        def add(
+            kind: str,
+            points: int,
+            description: str,
+            evidence: str,
+            *,
+            severity: str | None = None,
+        ) -> None:
+            severity = severity or ("high" if points >= 20 else "medium" if points >= 12 else "low")
             indicators.append(
                 PhishingIndicator(
                     type=kind,
@@ -137,7 +146,11 @@ class PhishingAnalyzer:
         if url_analysis.is_ip_address:
             add("ip_hostname", 20, "URL uses an IP address as its hostname.", hostname)
 
-        lookalike = detect_lookalike_domain(url_analysis.registered_domain)
+        lookalike = detect_lookalike_domain(
+            url_analysis.registered_domain,
+            hostname=hostname,
+            subdomain=url_analysis.subdomain,
+        )
         if lookalike is not None:
             typosquatting = TyposquattingAnalysis(
                 detected=True,
@@ -145,17 +158,33 @@ class PhishingAnalyzer:
                 possible_intended_site=lookalike.intended_domain,
                 similarity=lookalike.similarity,
                 edit_distance=lookalike.edit_distance,
+                domain=lookalike.suspicious_domain or url_analysis.registered_domain,
+                reference_domain=lookalike.intended_domain,
+                technique=lookalike.technique,
+                severity=lookalike.severity,
+                evidence=lookalike.evidence,
+                is_idn=lookalike.idn,
             )
+            indicator_type = (
+                "brand_impersonation_domain"
+                if lookalike.technique in {"misleading_subdomain", "brand_action_domain"}
+                else "typosquatting_domain"
+            )
+            # Brand-like subdomains and action-word variants reuse the existing
+            # 15-point structural-signal weight; close registrable-domain typos
+            # keep the established typosquatting weight.
+            points = 15 if indicator_type == "brand_impersonation_domain" else 30
             add(
-                "typosquatting_domain",
-                30,
-                f"Domain {url_analysis.registered_domain} closely resembles "
-                f"{lookalike.intended_domain}, which is a likely typosquatting attempt.",
+                indicator_type,
+                points,
+                f"{lookalike.suspicious_domain} may impersonate {lookalike.intended_domain} "
+                f"using {lookalike.technique.replace('_', ' ')}.",
                 f"registered_domain={url_analysis.registered_domain}; "
                 f"possible_intended_site={lookalike.intended_domain}; "
-                f"similarity={lookalike.similarity:.2f} (high); "
-                f"edit_distance={lookalike.edit_distance}; "
-                f"normalized_edit_distance={lookalike.normalized_edit_distance}",
+                f"domain={lookalike.suspicious_domain}; reference_domain={lookalike.intended_domain}; "
+                f"technique={lookalike.technique}; similarity={lookalike.similarity:.2f}; "
+                f"edit_distance={lookalike.edit_distance}; {lookalike.evidence}",
+                severity=lookalike.severity,
             )
 
         if url_analysis.has_username:
@@ -201,7 +230,13 @@ class PhishingAnalyzer:
             add("long_url", 10, "URL is unusually long.", f"{len(url)} characters")
 
         if "xn--" in hostname:
-            add("punycode_hostname", 15, "Hostname contains a punycode label.", hostname)
+            add(
+                "punycode_hostname",
+                0,
+                "Hostname contains an internationalized punycode label; this alone is not evidence of impersonation.",
+                hostname,
+                severity="info",
+            )
 
         if url_analysis.subdomain:
             labels = set(url_analysis.subdomain.lower().split("."))

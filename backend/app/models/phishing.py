@@ -17,11 +17,18 @@ class FraudUrlSignal(BaseModel):
 
 
 class TyposquattingAnalysis(BaseModel):
+    type: str = "typosquatting"
     detected: bool = False
     submitted_domain: str | None = None
     possible_intended_site: str | None = None
     similarity: float | None = Field(default=None, ge=0, le=1)
     edit_distance: int | None = Field(default=None, ge=0)
+    domain: str | None = None
+    reference_domain: str | None = None
+    technique: str | None = None
+    severity: str | None = None
+    evidence: str | None = None
+    is_idn: bool = False
 
 
 class PhishingAnalysisResult(BaseModel):

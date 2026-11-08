@@ -220,7 +220,9 @@ export function useInvestigation() {
       }
       if (mode === "url" && isRecord(payload) && isRecord(payload.availability)) {
         const status = payload.availability.status;
-        if (["not_found", "unreachable", "error"].includes(String(status))) {
+        const lookalikeDetected =
+          isRecord(payload.typosquatting) && payload.typosquatting.detected === true;
+        if (["not_found", "unreachable", "error"].includes(String(status)) && !lookalikeDetected) {
           setAvailability(payload.availability as unknown as WebsiteAvailability);
           if (status === "error")
             setError("Website availability could not be determined. Please retry the analysis.");

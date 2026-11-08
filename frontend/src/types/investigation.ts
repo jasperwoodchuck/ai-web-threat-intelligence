@@ -100,11 +100,18 @@ export interface PhishingAnalysis {
   fraudurl: FraudUrlSignal;
 }
 export interface TyposquattingAnalysis {
+  type: "typosquatting";
   detected: boolean;
   submitted_domain: string | null;
   possible_intended_site: string | null;
   similarity: number | null;
   edit_distance: number | null;
+  domain: string | null;
+  reference_domain: string | null;
+  technique: string | null;
+  severity: string | null;
+  evidence: string | null;
+  is_idn: boolean;
 }
 export interface RiskEvidence {
   source: string;

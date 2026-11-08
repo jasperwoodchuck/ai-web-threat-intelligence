@@ -88,8 +88,10 @@ def test_yovtube_identifies_youtube_as_possible_intended_site() -> None:
     assert result.typosquatting.similarity == 0.86
     assert result.typosquatting.edit_distance == 1
     assert "youtube.com" in indicator.description
-    assert "similarity=0.86 (high)" in indicator.evidence
+    assert "similarity=0.86" in indicator.evidence
     assert "edit_distance=1" in indicator.evidence
+    assert result.typosquatting.technique == "character_substitution"
+    assert result.typosquatting.reference_domain == "youtube.com"
 
 
 def test_missing_character_lookalikes_are_detected() -> None:
@@ -97,6 +99,78 @@ def test_missing_character_lookalikes_are_detected() -> None:
         result = analyze(f"https://{domain}")
         indicator = next(item for item in result.indicators if item.type == "typosquatting_domain")
         assert "youtube.com" in indicator.description
+
+
+def test_common_domain_edit_techniques_are_reported_with_reference_evidence() -> None:
+    cases = (
+        ("https://paypa1.com", "paypal.com", "character_substitution"),
+        ("https://paypall.com", "paypal.com", "repeated_character"),
+        ("https://paypa.com", "paypal.com", "character_deletion"),
+        ("https://microsft.com", "microsoft.com", "character_deletion"),
+        ("https://goggle.com", "google.com", "character_substitution"),
+        ("https://paypla.com", "paypal.com", "adjacent_character_swap"),
+        ("https://pay-pal.com", "paypal.com", "hyphen_insertion"),
+    )
+    for url, reference, technique in cases:
+        result = analyze(url)
+        assert result.typosquatting.detected, url
+        assert result.typosquatting.reference_domain == reference
+        assert result.typosquatting.technique == technique
+        assert result.typosquatting.evidence
+    assert analyze("https://paypa1.com").typosquatting.similarity == 0.92
+
+
+def test_unicode_and_punycode_homoglyphs_match_known_reference() -> None:
+    for url in ("https://раypal.com", "https://xn--ypal-43d9g.com"):
+        result = analyze(url)
+        assert result.typosquatting.detected
+        assert result.typosquatting.reference_domain == "paypal.com"
+        assert result.typosquatting.technique == "homoglyph_substitution"
+        assert result.typosquatting.is_idn is True
+
+
+def test_unrelated_punycode_is_identified_without_being_called_a_typosquat() -> None:
+    result = analyze("https://xn--e1afmkfd.xn--p1ai")
+    assert result.typosquatting.is_idn is True
+    assert result.typosquatting.detected is False
+    indicator = next(item for item in result.indicators if item.type == "punycode_hostname")
+    assert indicator.severity == "info"
+    assert indicator.score_contribution == 0
+
+
+def test_brand_in_subdomain_is_distinguished_from_registrable_domain() -> None:
+    for url in (
+        "https://paypal.example.com",
+        "https://paypal-login.example.com",
+        "https://paypa1.example.com",
+    ):
+        result = analyze(url)
+        assert result.typosquatting.detected, url
+        assert result.typosquatting.domain == url.removeprefix("https://")
+        assert result.typosquatting.reference_domain == "paypal.com"
+        assert result.typosquatting.technique == "misleading_subdomain"
+        assert "registrable domain is example.com" in result.typosquatting.evidence
+
+
+def test_brand_action_domain_is_flagged_but_generic_brand_suffix_is_not() -> None:
+    for url in ("https://paypal-login.com", "https://paypalverification.com"):
+        action = analyze(url)
+        assert action.typosquatting.detected
+        assert action.typosquatting.technique == "brand_action_domain"
+    assert not analyze("https://paypal-example.com").typosquatting.detected
+
+
+def test_url_path_and_query_do_not_affect_domain_comparison() -> None:
+    result = analyze("https://paypa1.com/path/to/page?foo=bar#section")
+    assert result.typosquatting.domain == "paypa1.com"
+    assert result.typosquatting.reference_domain == "paypal.com"
+
+
+def test_psl_boundary_keeps_co_uk_as_the_public_suffix() -> None:
+    parsed = UrlAnalyzer().analyze("https://example.co.uk/path?foo=bar")
+    assert parsed.registered_domain == "example.co.uk"
+    assert parsed.public_suffix == "co.uk"
+    assert detect_lookalike_domain("example.co.uk") is None
 
 
 def test_legitimate_known_domains_and_www_subdomain_are_not_flagged() -> None:
@@ -161,6 +235,7 @@ def test_multiple_candidates_choose_best_then_stable_lexical_match() -> None:
 def test_unrelated_domain_does_not_match_curated_sites() -> None:
     assert detect_lookalike_domain("example.com") is None
     assert detect_lookalike_domain("youtube.co.uk") is None
+    assert detect_lookalike_domain("completely-unrelated-domain.com") is None
     result = analyze("https://example.com")
     assert result.typosquatting.detected is False
     assert result.typosquatting.possible_intended_site is None

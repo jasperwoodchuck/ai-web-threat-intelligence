@@ -27,12 +27,14 @@ _URL_STRUCTURE_STRENGTHS = {
     "ip_hostname": 20,
     "embedded_username": 20,
     "unusual_port": 10,
-    "punycode_hostname": 15,
+    # IDN/punycode is descriptive evidence only unless a brand-lookalike match exists.
+    "punycode_hostname": 0,
     "excessive_subdomains": 15,
     "misleading_hostname_structure": 15,
     "long_hostname": 10,
     "long_url": 10,
     "typosquatting_domain": 30,
+    "brand_impersonation_domain": 15,
 }
 _TLS_RISK_STRENGTHS = {
     "certificate_expired": 25,
@@ -632,6 +634,7 @@ class RiskScorer:
                 "misleading_hostname_structure",
                 "long_hostname",
                 "typosquatting_domain",
+                "brand_impersonation_domain",
             }:
                 return "url_hostname_structure"
             if indicator == "unusual_port":

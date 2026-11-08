@@ -12,6 +12,8 @@ import type {
 import { httpStatusText, keyFindings, toneForRisk } from "../../lib/analysis";
 import { DetailPanel, EvidenceList, KeyValueGrid, ValueList } from "./ResultPrimitives";
 import { AnalysisDetailModal, type AnalysisCardDetail } from "./AnalysisDetailModal";
+import { ReportExportActions } from "./ReportExportActions";
+import type { AnalysisApiResult } from "../../lib/reportExport";
 
 const MIN_CLASSIFICATION_CONFIDENCE = 0.6;
 
@@ -492,7 +494,7 @@ function FindingCard({
   );
 }
 
-function Summary({ result }: { result: NormalizedAnalysisResult }) {
+function Summary({ result, source }: { result: NormalizedAnalysisResult; source: AnalysisApiResult }) {
   const [selectedCheck, setSelectedCheck] = useState<AnalysisCardDetail | null>(null);
   const closeDetail = useCallback(() => setSelectedCheck(null), []);
   const openDetail = (detail: AnalysisCardDetail) => setSelectedCheck(detail);
@@ -503,6 +505,7 @@ function Summary({ result }: { result: NormalizedAnalysisResult }) {
     <>
       <div className="report-heading">
         <p className="eyebrow">INVESTIGATION RESULTS</p>
+        <ReportExportActions result={source} />
       </div>
       {result.contentType && (
         <div className="content-type-label">
@@ -721,6 +724,11 @@ function UrlDetails({ result }: { result: UrlAnalysisResponse }) {
             { label: "Indicator", value: result.threat_intelligence.indicator },
             { label: "Threat type", value: result.threat_intelligence.threat_type },
             { label: "Typosquatting", value: result.typosquatting.detected },
+            { label: "Detected domain", value: result.typosquatting.domain },
+            { label: "Reference domain", value: result.typosquatting.reference_domain },
+            { label: "Technique", value: result.typosquatting.technique },
+            { label: "Similarity", value: result.typosquatting.similarity },
+            { label: "Evidence", value: result.typosquatting.evidence },
             { label: "Possible intended site", value: result.typosquatting.possible_intended_site },
           ]}
         />
@@ -936,7 +944,7 @@ export function AnalysisResult({
   }
   return (
     <section className="report unified-report" aria-live="polite">
-      <Summary result={normalized} />
+      <Summary result={normalized} source={result} />
       <details
         className="technical-details"
         open={detailedOpen}

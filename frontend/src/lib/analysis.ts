@@ -47,12 +47,18 @@ export function keyFindings(result: UrlAnalysisResponse): SummaryFinding[] {
 
   if (
     result.typosquatting.detected &&
-    result.typosquatting.submitted_domain &&
-    result.typosquatting.possible_intended_site
+    (result.typosquatting.domain || result.typosquatting.submitted_domain) &&
+    (result.typosquatting.reference_domain || result.typosquatting.possible_intended_site)
   ) {
+    const domain = result.typosquatting.domain ?? result.typosquatting.submitted_domain!;
+    const reference = result.typosquatting.reference_domain ?? result.typosquatting.possible_intended_site!;
+    const brandImpersonation = ["misleading_subdomain", "brand_action_domain"].includes(
+      result.typosquatting.technique ?? "",
+    );
+    const technique = result.typosquatting.technique?.replaceAll("_", " ") ?? "domain similarity";
     add({
-      title: "Possible typosquatting",
-      detail: `${result.typosquatting.submitted_domain} resembles ${result.typosquatting.possible_intended_site}.`,
+      title: brandImpersonation ? "Possible brand impersonation" : "Possible typosquatting",
+      detail: `${domain} is similar to ${reference} · ${technique}${result.typosquatting.evidence ? ` · ${result.typosquatting.evidence}` : ""}`,
       details: result.typosquatting,
       tone: "warning",
     });
