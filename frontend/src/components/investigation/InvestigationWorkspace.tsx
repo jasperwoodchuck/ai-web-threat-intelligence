@@ -21,7 +21,7 @@ export function InvestigationWorkspace(props: InvestigationWorkspaceProps) {
       <InvestigationModeSelector mode={props.mode} onChange={props.onModeChange} disabled={props.loading} />
       {props.mode === "file" ? <FileUploadPanel file={props.file} onChange={props.onFileChange} error={props.fileError} onError={props.onFileError} /> : <div className={`analysis-input ${props.mode === "message" ? "is-message" : "is-url"}`}><div className="input-label-row"><label htmlFor={props.mode === "url" ? "url-input" : "message-input"}>{config.inputLabel}</label><span className="input-mode-note">{config.label} mode</span></div>
         {props.mode === "url" ? <UrlInput value={props.url} placeholder={config.placeholder} onChange={props.onUrlChange} /> : <MessageInput value={props.message} maxLength={config.maxLength ?? 20000} placeholder={config.placeholder} onChange={props.onMessageChange} />}
-        <div className="analysis-supporting-text"><span>{config.supportingText}</span><span>{config.capabilities}</span>{props.mode === "message" && <span>{props.message.length.toLocaleString()} / 20,000</span>}</div>
+        <div className="analysis-supporting-text"><span>{props.mode === "message" ? `${props.message.length.toLocaleString()} / 20,000` : config.supportingText}</span><span>{config.capabilities}</span></div>
       </div>}
       <div className="analysis-actions"><span className="analysis-hint">Selected mode determines the analysis that runs.</span><AnalyzeButton loading={props.loading} mode={props.mode} /></div>
     </form>

@@ -9,16 +9,14 @@
     radial-gradient(circle at 0% 30%, rgba(30, 170, 179, .08), transparent 28rem),
     var(--surface-page);
 }
-.security-background { position: fixed; z-index: -1; inset: 0; overflow: clip; pointer-events: none; background: radial-gradient(ellipse at 82% 4%, color-mix(in srgb, var(--accent-blue) 6%, transparent), transparent 34rem), radial-gradient(ellipse at 9% 78%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 32rem); }
-.security-glow { position: absolute; width: min(42vw, 620px); aspect-ratio: 1; border-radius: 50%; filter: blur(85px); opacity: .12; will-change: transform; }
-.security-glow-cyan { top: -22%; right: -12%; background: radial-gradient(circle, #198ca8 0%, rgba(25,140,168,0) 70%); animation: security-drift-a 34s ease-in-out infinite alternate; }
-.security-glow-blue { bottom: -38%; left: -18%; background: radial-gradient(circle, #365fbd 0%, rgba(54,95,189,0) 70%); animation: security-drift-b 39s ease-in-out infinite alternate; }
-.security-glow-teal { top: 40%; left: 42%; width: min(30vw, 430px); background: radial-gradient(circle, #178d83 0%, rgba(23,141,131,0) 70%); opacity: .07; animation: security-drift-c 31s ease-in-out infinite alternate; }
-.security-network { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .12; stroke: var(--accent); stroke-width: 1; }
-.security-network circle { fill: var(--accent-blue); stroke: none; }
-@keyframes security-drift-a { to { transform: translate3d(-5vw, 4vh, 0) scale(1.08); } }
-@keyframes security-drift-b { to { transform: translate3d(6vw, -4vh, 0) scale(1.05); } }
-@keyframes security-drift-c { to { transform: translate3d(2vw, 5vh, 0); opacity: .11; } }
+.security-background { position: fixed; z-index: -1; inset: 0; overflow: clip; pointer-events: none; background: var(--surface-page); }
+.security-glow { position: absolute; width: min(58vw, 820px); height: min(66vh, 680px); border-radius: 48% 52% 58% 42% / 46% 42% 58% 54%; filter: blur(105px); opacity: .15; will-change: transform, border-radius; }
+.security-glow-cyan { top: -30%; right: -22%; background: radial-gradient(ellipse at 45% 50%, #168ba8 0%, rgba(22,139,168,.68) 28%, rgba(22,139,168,0) 72%); animation: security-drift-a 36s ease-in-out infinite alternate; }
+.security-glow-blue { bottom: -46%; left: -28%; width: min(64vw, 900px); height: min(70vh, 740px); background: radial-gradient(ellipse at 52% 46%, #315fc2 0%, rgba(49,95,194,.62) 30%, rgba(49,95,194,0) 72%); opacity: .14; animation: security-drift-b 40s ease-in-out infinite alternate; }
+.security-glow-teal { top: 32%; left: 34%; width: min(48vw, 650px); height: min(52vh, 540px); background: radial-gradient(ellipse at 50% 50%, #128e83 0%, rgba(18,142,131,.58) 28%, rgba(18,142,131,0) 72%); opacity: .09; animation: security-drift-c 32s ease-in-out infinite alternate; }
+@keyframes security-drift-a { to { transform: translate3d(-4vw, 6vh, 0) rotate(10deg) scale(1.08); border-radius: 56% 44% 42% 58% / 52% 58% 42% 48%; } }
+@keyframes security-drift-b { to { transform: translate3d(6vw, -5vh, 0) rotate(-8deg) scale(1.06); border-radius: 42% 58% 55% 45% / 58% 44% 56% 42%; } }
+@keyframes security-drift-c { to { transform: translate3d(3vw, 4vh, 0) rotate(8deg); border-radius: 55% 45% 40% 60% / 44% 58% 42% 56%; opacity: .13; } }
 .topbar, .main-container, .site-footer { position: relative; z-index: 1; }
 
 .topbar {
