@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { apiUrl } from "./lib/api";
 import "./App.css";
 
 type Tone = "neutral" | "good" | "warning" | "danger" | "info";
@@ -551,7 +552,7 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch("/api/v1/analyze/url", {
+      const response = await fetch(apiUrl("/api/v1/analyze/url"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: submittedUrl }),
@@ -585,7 +586,7 @@ function App() {
     }
     setMessageLoading(true);
     try {
-      const response = await fetch("/api/v1/analyze/message", {
+      const response = await fetch(apiUrl("/api/v1/analyze/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),

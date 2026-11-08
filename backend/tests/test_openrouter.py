@@ -35,8 +35,8 @@ def test_successful_structured_response_and_prompt_separation(monkeypatch) -> No
 
 
 def test_missing_key_or_model_is_unavailable() -> None:
-    assert OpenRouterProvider(None, "model").explain("x", [], []).status == "unavailable"
-    assert OpenRouterProvider("key", None).explain("x", [], []).status == "unavailable"
+    assert OpenRouterProvider("", "model").explain("x", [], []).status == "unavailable"
+    assert OpenRouterProvider("key", "").explain("x", [], []).status == "unavailable"
 
 
 def test_timeout_and_http_error_fail_gracefully(monkeypatch) -> None:

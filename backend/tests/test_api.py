@@ -27,6 +27,20 @@ def test_health_endpoint_works() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_cors_allows_local_vite_origin_without_credentials() -> None:
+    response = TestClient(main.app).options(
+        "/api/v1/health",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "access-control-allow-credentials" not in response.headers
+
+
 def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     class FakeResolver:
         def resolve(self, hostname: str, record_type: str, lifetime: float):

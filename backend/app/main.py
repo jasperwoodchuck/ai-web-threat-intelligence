@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.openrouter import OpenRouterProvider
 from app.analyzers.dns import DnsAnalyzer
@@ -7,7 +8,7 @@ from app.analyzers.message import MAX_MESSAGE_LENGTH, MessageAnalyzer
 from app.analyzers.phishing import PhishingAnalyzer
 from app.analyzers.tls import TlsAnalyzer
 from app.analyzers.url import UrlAnalyzer
-from app.config import load_environment
+from app.config import frontend_origins, load_environment
 from app.models.analysis import UrlAnalysisResponse
 from app.models.message import AIExplanation, MessageAnalysisRequest, MessageAnalysisResponse
 from app.models.url import UrlAnalysisRequest
@@ -17,6 +18,13 @@ from app.threat_intel.urlhaus import UrlhausProvider
 load_environment()
 
 app = FastAPI(title="Web Threat Intelligence API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=frontend_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 url_analyzer = UrlAnalyzer()
 dns_analyzer = DnsAnalyzer()
 phishing_analyzer = PhishingAnalyzer()

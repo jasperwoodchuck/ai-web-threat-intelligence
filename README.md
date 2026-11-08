@@ -65,6 +65,51 @@ message language analysis is heuristic, and extracted email addresses and phone 
 independently verified. Avoid submitting content you do not want shared with the configured AI
 provider.
 
+## Render deployment
+
+The application deploys as two stateless Render services: a FastAPI web service and a Vite static
+site. It does not require a database, Redis, or a persistent disk. The backend remains stateless;
+it does not persist investigation results. URL analysis makes bounded DNS/TLS/HTTP metadata
+requests to the submitted public destination, with optional calls to configured external
+providers. Existing destination checks block non-public IPs, use timeouts and response-size
+limits, do not execute page JavaScript, and do not follow HTTP redirects.
+
+The repository-level `render.yaml` defines both services. Create a Render Blueprint from this
+repository. The backend uses Python 3.14 with the committed `uv.lock`; the frontend uses Bun and
+the committed `bun.lock`. The backend build command is `uv sync --locked --no-dev`, and its start
+command is `uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Render health checks use
+`GET /api/v1/health`, which requires no provider credentials.
+
+Set `FRONTEND_ORIGIN` on the backend to the deployed static-site origin (for example,
+`https://<your-frontend>.onrender.com`). The Blueprint prompts for this value because the backend
+must allow the exact browser origin; use the static service's assigned origin and verify it after
+the first deploy. If the final hostname differs from the value entered, update it in the backend
+service's Environment settings and redeploy. The backend
+also allows `http://localhost:5173` and `http://127.0.0.1:5173` for local development. CORS does
+not allow credentials and permits only GET/POST plus the Content-Type header.
+
+The frontend build command is `bun install --frozen-lockfile && bun run build`, publishing
+`frontend/dist`. The Blueprint obtains `VITE_API_BASE_URL` from the backend's Render-provided
+external URL, so both frontend API workflows call the configured backend. In local development,
+leave `VITE_API_BASE_URL` blank: the Vite `/api` proxy continues to forward requests to
+`http://127.0.0.1:8000`.
+
+Backend environment variables are configured in the Render Web Service, never in the frontend:
+
+```env
+FRONTEND_ORIGIN=https://<your-frontend>.onrender.com
+URLHAUS_API_KEY=<optional-urlhaus-key>
+OPENROUTER_API_KEY=<optional-openrouter-key>
+OPENROUTER_MODEL=<optional-openrouter-model>
+```
+
+Only `FRONTEND_ORIGIN` is needed for browser connectivity. URLhaus and OpenRouter remain optional;
+missing keys leave their providers unavailable without preventing startup. `VITE_API_BASE_URL` is a
+frontend build-time setting and contains only the public API origin, never credentials. For a
+custom frontend domain, set `FRONTEND_ORIGIN` to that exact HTTPS origin. Local setup remains
+`make install`, `make dev`, and `make test`; see `backend/.env.example` and
+`frontend/.env.example` for local configuration templates.
+
 ## License
 
 This project is dual-licensed under either the MIT License or the Apache License, Version 2.0, at your option.

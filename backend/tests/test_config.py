@@ -1,4 +1,4 @@
-from app.config import load_environment
+from app.config import frontend_origins, load_environment
 from app.threat_intel.urlhaus import UrlhausProvider
 
 
@@ -11,3 +11,13 @@ def test_backend_env_file_loads_urlhaus_api_key(tmp_path, monkeypatch) -> None:
 
     provider = UrlhausProvider()
     assert provider.api_key == "unit-test-key"
+
+
+def test_frontend_origins_include_local_and_configured_values(monkeypatch) -> None:
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://frontend.example.test/, https://preview.example.test")
+    assert frontend_origins() == [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "https://frontend.example.test",
+        "https://preview.example.test",
+    ]
