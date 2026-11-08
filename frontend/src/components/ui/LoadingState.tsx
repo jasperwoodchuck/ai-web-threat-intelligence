@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
-const STATUS_INTERVAL_MS = 1_500;
+const STATUS_INTERVAL_MS = 3_000;
 const MAX_PENDING_PROGRESS = 92;
+const PROGRESS_STEP_PERCENT = 5;
 
 const ANALYSIS_STATUSES = [
   "Initializing security analysis...",
@@ -30,7 +31,7 @@ export function LoadingState() {
   }, []);
 
   const status = ANALYSIS_STATUSES[elapsedSteps] ?? "Finalizing analysis...";
-  const progress = Math.min(MAX_PENDING_PROGRESS, 5 + elapsedSteps * 7.5);
+  const progress = Math.min(MAX_PENDING_PROGRESS, 5 + elapsedSteps * PROGRESS_STEP_PERCENT);
 
   return (
     <div className="loading-card" role="status" aria-live="polite">
