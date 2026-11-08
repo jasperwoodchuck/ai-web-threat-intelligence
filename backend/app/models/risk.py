@@ -8,7 +8,6 @@ class RiskClassification(StrEnum):
     SUSPICIOUS = "Suspicious"
     HIGH_RISK = "High Risk"
     CONFIRMED_MALICIOUS = "Confirmed Malicious"
-    INCONCLUSIVE = "Inconclusive"
 
 
 class RiskEvidence(BaseModel):

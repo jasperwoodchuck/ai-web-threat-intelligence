@@ -79,10 +79,10 @@ def assert_score_matches_impacts(assessment) -> None:
     assert sum(item.weight for item in assessment.contributing_indicators) == assessment.score
 
 
-def test_no_meaningful_indicators_is_inconclusive_not_safe() -> None:
+def test_no_meaningful_indicators_is_low_risk_but_not_proven_safe() -> None:
     assessment = RiskScorer().assess(make_url(), make_dns(), make_phishing(fraud_probability=0.2))
 
-    assert assessment.classification is RiskClassification.INCONCLUSIVE
+    assert assessment.classification is RiskClassification.LOW_RISK
     assert assessment.score == 0
     assert any("does not prove" in limitation for limitation in assessment.limitations)
 
@@ -204,7 +204,7 @@ def test_urlhaus_match_confirms_malicious_and_preserves_source_evidence() -> Non
     assert_score_matches_impacts(assessment)
 
 
-def test_no_urlhaus_match_does_not_mean_low_risk() -> None:
+def test_no_urlhaus_match_scores_low_but_does_not_establish_safety() -> None:
     intel = ThreatIntelResult(
         status=ThreatIntelStatus.NO_MATCH,
         matched=False,
@@ -216,7 +216,7 @@ def test_no_urlhaus_match_does_not_mean_low_risk() -> None:
         make_url(), make_dns(), make_phishing(fraud_probability=0.2), threat_intelligence=intel
     )
 
-    assert assessment.classification is RiskClassification.INCONCLUSIVE
+    assert assessment.classification is RiskClassification.LOW_RISK
     assert assessment.score == 0
     assert any("does not establish" in text for text in assessment.limitations)
 
@@ -408,7 +408,7 @@ def test_http_failure_reduces_confidence_without_adding_risk_points() -> None:
     )
 
 
-def test_current_ui_example_url_is_inconclusive_when_checks_find_no_suspicious_evidence() -> None:
+def test_current_ui_example_url_is_low_risk_when_checks_find_no_suspicious_evidence() -> None:
     url = UrlAnalyzer().analyze("https://example.com")
     dns = DnsAnalysisResult(
         hostname="example.com",
@@ -451,7 +451,7 @@ def test_current_ui_example_url_is_inconclusive_when_checks_find_no_suspicious_e
     assessment = RiskScorer().assess(url, dns, phishing, tls, intel, http)
 
     assert assessment.score == 0
-    assert assessment.classification is RiskClassification.INCONCLUSIVE
+    assert assessment.classification is RiskClassification.LOW_RISK
     assert assessment.confidence == 0.95
     assert_score_matches_impacts(assessment)
     assert {item.source for item in assessment.contributing_indicators} >= {
@@ -677,7 +677,7 @@ def test_errors_and_timeouts_add_uncertainty_not_risk_points() -> None:
     )
 
     assert assessment.score == 0
-    assert assessment.classification is RiskClassification.INCONCLUSIVE
+    assert assessment.classification is RiskClassification.LOW_RISK
     assert all(item.weight == 0 for item in assessment.contributing_indicators)
     assert len(assessment.limitations) >= 4
     assert_score_matches_impacts(assessment)

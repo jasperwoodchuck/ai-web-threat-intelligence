@@ -10,7 +10,7 @@ const messageResult = {
   deterministic_indicators: [],
   url_threat_intelligence: [],
   risk_assessment: {
-    classification: "Inconclusive",
+    classification: "Low Risk",
     score: 0,
     confidence: 0.35,
     contributing_indicators: [],
@@ -106,7 +106,7 @@ test("rate-limited image analysis is shown as unavailable in the file result", (
     limitations: ["OpenRouter image analysis was rate limited (HTTP 429); OCR and visual analysis are unavailable."],
     extracted_urls: [], deterministic_indicators: [], url_threat_intelligence: [],
     risk_assessment: {
-      classification: "Inconclusive", score: 0, confidence: 0.35,
+      classification: "Low Risk", score: 0, confidence: 0.35,
       contributing_indicators: [], recommended_precautions: [], limitations: [],
     },
     ai_explanation: {

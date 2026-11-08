@@ -777,8 +777,6 @@ class RiskScorer:
 
     @staticmethod
     def _classify(score: int) -> RiskClassification:
-        if score == 0:
-            return RiskClassification.INCONCLUSIVE
         if score < 15:
             return RiskClassification.LOW_RISK
         if score < 35:

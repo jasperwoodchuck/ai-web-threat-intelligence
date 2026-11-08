@@ -147,7 +147,7 @@ def test_valid_https_url_analysis_works_through_api(monkeypatch) -> None:
     assert body["phishing_analysis"]["is_suspicious"] is False
     assert body["phishing_analysis"]["fraudurl"]["result"]["fraud_verdict"] == "LEGITIMATE"
     assert body["typosquatting"]["detected"] is False
-    assert body["risk_assessment"]["classification"] == "Inconclusive"
+    assert body["risk_assessment"]["classification"] == "Low Risk"
     assert body["risk_assessment"]["score"] == 0
     assert body["tls_analysis"]["protocol_version"] == "TLSv1.3"
     assert body["http_analysis"]["status_code"] == 200

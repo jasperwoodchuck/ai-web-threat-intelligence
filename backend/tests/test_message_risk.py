@@ -20,7 +20,7 @@ def test_exact_urlhaus_match_confirms_and_no_match_does_not_prove_safety() -> No
     exact = RiskScorer().assess_message([], [result(ThreatIntelStatus.MATCHED, "url")], AIExplanation(status="unavailable"))
     assert exact.classification.value == "Confirmed Malicious"
     no_match = RiskScorer().assess_message([], [result(ThreatIntelStatus.NO_MATCH)], AIExplanation(status="unavailable"))
-    assert no_match.classification.value == "Inconclusive"
+    assert no_match.classification.value == "Low Risk"
     assert "not proof" in " ".join(no_match.limitations)
 
 
