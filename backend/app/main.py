@@ -268,9 +268,26 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
         except ModelCapabilityError as exc:
             raise HTTPException(status_code=422, detail={"code": "model_capability", "message": "The configured analysis model does not support image input."}) from exc
         except ModelResponseError as exc:
-            raise HTTPException(status_code=502, detail={"code": "malformed_provider_response", "message": "The analysis service returned an unreadable result. Please retry with a different file."}) from exc
+            ai_result = {
+                "extracted_text": "", "content_type": "unknown", "classification_confidence": 0,
+                "classification_reasoning": "The structured AI response failed validation.",
+                "summary": "AI interpretation could not be validated.", "indicators": [],
+                "recommended_action": "Review the file manually and retry the analysis.", "limitations": [],
+            }
+            ai_explanation = AIExplanation(status="malformed", limitations=[str(exc)])
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"code": "provider_failure", "message": "Image analysis is temporarily unavailable."}) from exc
+            logger.warning("image analysis provider failed error_type=%s", type(exc).__name__)
+            ai_result = {
+                "extracted_text": "", "content_type": "unknown", "classification_confidence": 0,
+                "classification_reasoning": "Image interpretation could not be completed.",
+                "summary": "AI interpretation is unavailable; no OCR or visual observations were returned.",
+                "indicators": [], "recommended_action": "Review the image manually and retry the analysis.",
+                "limitations": [],
+            }
+            ai_explanation = AIExplanation(
+                status="unavailable",
+                limitations=["Image OCR and visual analysis are unavailable because the AI provider failed."],
+            )
     elif media_type == "text/plain":
         try:
             extracted_text = data.decode("utf-8-sig")[:30_000]
@@ -288,6 +305,14 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
                 limitations=[str(item) for item in ai_result.get("limitations", [])],
                 confidence=float(ai_result.get("classification_confidence", 0)),
             )
+        except ModelResponseError as exc:
+            ai_result = {
+                "content_type": "unknown", "classification_confidence": 0,
+                "classification_reasoning": "The structured AI response failed validation.",
+                "summary": "AI interpretation could not be validated.", "indicators": [],
+                "recommended_action": "Review the extracted text and retry the analysis.",
+            }
+            ai_explanation = AIExplanation(status="malformed", limitations=[str(exc)])
         except Exception:
             ai_result = {"content_type": "unknown", "classification_confidence": 0.35,
                          "classification_reasoning": "The file is plain text; model classification was unavailable.",
@@ -310,6 +335,10 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
                     "summary": "The PDF was validated, but no selectable text was available to analyze.",
                     "indicators": [], "recommended_action": "Review the PDF manually or upload page images for OCR.",
                 }
+                ai_explanation = AIExplanation(
+                    status="not_requested",
+                    limitations=["AI interpretation was not requested because no selectable PDF text was available."],
+                )
             else:
                 ai_result = {}
         except Exception as exc:
@@ -325,6 +354,14 @@ def analyze_file(file: UploadFile = File(...)) -> FileAnalysisResponse | JSONRes
                     limitations=[str(item) for item in ai_result.get("limitations", [])],
                     confidence=float(ai_result.get("classification_confidence", 0)),
                 )
+            except ModelResponseError as exc:
+                ai_result = {
+                    "content_type": "unknown", "classification_confidence": 0,
+                    "classification_reasoning": "The structured AI response failed validation.",
+                    "summary": "AI interpretation could not be validated.", "indicators": [],
+                    "recommended_action": "Review the extracted text and retry the analysis.",
+                }
+                ai_explanation = AIExplanation(status="malformed", limitations=[str(exc)])
             except Exception:
                 ai_result = {"content_type": "unknown", "classification_confidence": 0.35,
                              "classification_reasoning": "Selectable PDF text was extracted; model classification was unavailable.",

@@ -241,6 +241,19 @@ function normalizeFile(result: FileAnalysisResponse): NormalizedAnalysisResult {
 
 function AiOverviewCard({ overview }: { overview: AIExplanation }) {
   const available = overview.status === "available";
+  const statusLabel = {
+    available: "Available",
+    unavailable: "Unavailable",
+    malformed: "Malformed",
+    not_requested: "Not requested",
+  }[overview.status];
+  const preview = available
+    ? overview.summary || "No AI overview was returned."
+    : overview.status === "malformed"
+      ? "OpenRouter returned output that did not match the expected schema. See AI details for the validation reason."
+      : overview.status === "not_requested"
+        ? "AI interpretation was not requested for this content."
+        : "AI interpretation is unavailable. Review the security checks and evidence.";
   return (
     <details className="ai-overview-card">
       <summary>
@@ -252,15 +265,11 @@ function AiOverviewCard({ overview }: { overview: AIExplanation }) {
             <strong>AI overview</strong>
             <small>Advisory interpretation</small>
           </span>
-          <Badge tone={available ? "info" : "warning"}>
-            {available ? "Available" : "Unavailable"}
+          <Badge tone={available ? "info" : overview.status === "not_requested" ? "neutral" : "warning"}>
+            {statusLabel}
           </Badge>
         </div>
-        <p className="ai-overview-preview">
-          {available
-            ? overview.summary || "No AI overview was returned."
-            : "AI interpretation is unavailable. Review the security checks and evidence."}
-        </p>
+        <p className="ai-overview-preview">{preview}</p>
         <span className="ai-overview-expand">View AI details</span>
       </summary>
       <div className="ai-overview-expanded">

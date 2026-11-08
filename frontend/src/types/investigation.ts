@@ -229,8 +229,9 @@ export interface MessageAnalysisResponse {
   ai_explanation: AIExplanation;
   limitations: string[];
 }
+export type AIExplanationStatus = "available" | "unavailable" | "malformed" | "not_requested";
 export interface AIExplanation {
-  status: string;
+  status: AIExplanationStatus;
   summary: string | null;
   suspicious_indicators: string[];
   evidence: string[];

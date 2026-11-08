@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { analysisApiBaseUrl, apiUrl, isProductionApiConfigured } from "../lib/api";
 import type {
   AnalysisMode,
+  AIExplanation,
   FileAnalysisResponse,
   MessageAnalysisResponse,
   UrlAnalysisResponse,
@@ -27,6 +28,28 @@ function analysisLog(message: string, details?: Record<string, unknown>) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isAIExplanation(value: unknown): value is AIExplanation {
+  return (
+    isRecord(value) &&
+    ["available", "unavailable", "malformed", "not_requested"].includes(String(value.status)) &&
+    (typeof value.summary === "string" || value.summary === null) &&
+    Array.isArray(value.suspicious_indicators) &&
+    value.suspicious_indicators.every((item) => typeof item === "string") &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string") &&
+    Array.isArray(value.recommended_actions) &&
+    value.recommended_actions.every((item) => typeof item === "string") &&
+    Array.isArray(value.limitations) &&
+    value.limitations.every((item) => typeof item === "string") &&
+    (value.confidence === null ||
+      (typeof value.confidence === "number" &&
+        Number.isFinite(value.confidence) &&
+        value.confidence >= 0 &&
+        value.confidence <= 1)) &&
+    typeof value.advisory_note === "string"
+  );
 }
 
 function responseDetail(payload: unknown): string | null {
@@ -61,12 +84,14 @@ function expectedResponse(
       Array.isArray(payload.deterministic_indicators) &&
       Array.isArray(payload.url_threat_intelligence) &&
       isRecord(payload.risk_assessment) &&
-      isRecord(payload.ai_explanation)
+      isAIExplanation(payload.ai_explanation)
     );
   }
   return mode === "url"
-    ? isRecord(payload.url_analysis) && isRecord(payload.threat_intelligence)
-    : isRecord(payload.ai_explanation) && Array.isArray(payload.deterministic_indicators);
+    ? isRecord(payload.url_analysis) &&
+        isRecord(payload.threat_intelligence) &&
+        (payload.ai_explanation === undefined || isAIExplanation(payload.ai_explanation))
+    : isAIExplanation(payload.ai_explanation) && Array.isArray(payload.deterministic_indicators);
 }
 
 async function readJsonResponse(response: Response): Promise<unknown> {

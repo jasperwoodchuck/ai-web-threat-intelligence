@@ -7,7 +7,7 @@ from starlette.datastructures import Headers, UploadFile
 from pypdf import PdfWriter
 
 from app import main
-from app.ai.openrouter import ModelCapabilityError
+from app.ai.openrouter import ModelCapabilityError, ModelResponseError
 from app.models.message import AIExplanation, MessageAnalysisRequest
 from app.threat_intel.base import ThreatIntelResult, ThreatIntelStatus
 
@@ -72,6 +72,25 @@ def test_scanned_pdf_is_reported_as_unknown_without_claiming_ocr(monkeypatch) ->
     assert body["content_type"] == "unknown"
     assert body["classification_confidence"] == 0
     assert any("not OCR processed" in item for item in body["limitations"])
+    assert body["ai_explanation"]["status"] == "not_requested"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_status"),
+    [
+        (ModelResponseError("required fields missing: summary"), "malformed"),
+        (RuntimeError("provider unavailable"), "unavailable"),
+    ],
+)
+def test_image_ai_failure_status_is_preserved_in_result(monkeypatch, failure, expected_status) -> None:
+    def fail(*_args):
+        raise failure
+
+    monkeypatch.setattr(main.ai_provider, "inspect_image", fail)
+    body = json.loads(main.analyze_file(_upload("evidence.jpg", b"\xff\xd8\xffsample", "image/jpeg")).body)
+    assert body["ai_explanation"]["status"] == expected_status
+    assert body["content_type"] == "unknown"
+    assert body["extracted_text"] == ""
 
 
 def test_unsupported_and_oversized_files_return_useful_statuses() -> None:

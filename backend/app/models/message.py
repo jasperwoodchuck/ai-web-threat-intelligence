@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.models.risk import RiskAssessment
@@ -16,7 +18,7 @@ class MessageIndicator(BaseModel):
 
 
 class AIExplanation(BaseModel):
-    status: str
+    status: Literal["available", "unavailable", "malformed", "not_requested"]
     summary: str | None = None
     suspicious_indicators: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
