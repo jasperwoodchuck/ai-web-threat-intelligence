@@ -1,4 +1,9 @@
+import asyncio
 import hashlib
+import logging
+from contextlib import asynccontextmanager
+
+import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +29,41 @@ from io import BytesIO
 
 load_environment()
 
-app = FastAPI(title="Web Threat Intelligence API")
+logger = logging.getLogger(__name__)
+# This public URL sends each ping back through Render's ingress. Render documents
+# spin-down in terms of inbound traffic, but does not explicitly guarantee that
+# service-originated requests reset the idle timer; this remains best-effort.
+KEEP_ALIVE_URL = "https://ai-web-threat-intelligence-backend.onrender.com/health"
+KEEP_ALIVE_INTERVAL_SECONDS = 10 * 60
+
+
+async def _keep_service_warm() -> None:
+    """Best-effort public-ingress request; Render does not guarantee self-pings prevent spin-down."""
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        while True:
+            await asyncio.sleep(KEEP_ALIVE_INTERVAL_SECONDS)
+            try:
+                response = await client.get(KEEP_ALIVE_URL)
+                response.raise_for_status()
+                logger.info("Render keep-alive ping succeeded (status=%s)", response.status_code)
+            except httpx.HTTPError as exc:
+                logger.warning("Render keep-alive ping failed (%s)", type(exc).__name__)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    keep_alive_task = asyncio.create_task(_keep_service_warm(), name="render-keep-alive")
+    try:
+        yield
+    finally:
+        keep_alive_task.cancel()
+        try:
+            await keep_alive_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Web Threat Intelligence API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_origins(),
@@ -46,6 +85,11 @@ ai_provider = OpenRouterProvider()
 
 @app.get("/api/v1/health")
 def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health")
+def public_health() -> dict[str, str]:
     return {"status": "ok"}
 
 
