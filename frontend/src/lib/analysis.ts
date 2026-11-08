@@ -45,27 +45,13 @@ export function keyFindings(result: UrlAnalysisResponse): SummaryFinding[] {
     if (!findings.some((existing) => existing.title === finding.title)) findings.push(finding);
   };
 
-  if (
-    result.typosquatting.detected &&
-    (result.typosquatting.domain || result.typosquatting.submitted_domain) &&
-    (result.typosquatting.reference_domain || result.typosquatting.possible_intended_site)
-  ) {
-    const domain = result.typosquatting.domain ?? result.typosquatting.submitted_domain!;
-    const reference = result.typosquatting.reference_domain ?? result.typosquatting.possible_intended_site!;
-    const brandImpersonation = ["misleading_subdomain", "brand_action_domain"].includes(
-      result.typosquatting.technique ?? "",
-    );
-    const technique = result.typosquatting.technique?.replaceAll("_", " ") ?? "domain similarity";
-    add({
-      title: brandImpersonation ? "Possible brand impersonation" : "Possible typosquatting",
-      detail: `${domain} is similar to ${reference} · ${technique}${result.typosquatting.evidence ? ` · ${result.typosquatting.evidence}` : ""}`,
-      details: result.typosquatting,
-      tone: "warning",
-    });
-  }
-
   const impactfulEvidence = [...result.risk_assessment.contributing_indicators]
-    .filter((item) => item.weight !== 0 && item.indicator !== "typosquatting_domain")
+    .filter(
+      (item) =>
+        item.weight !== 0 &&
+        item.indicator !== "typosquatting_domain" &&
+        item.indicator !== "brand_impersonation_domain",
+    )
     .sort((left, right) => Math.abs(right.weight) - Math.abs(left.weight));
   for (const item of impactfulEvidence) {
     if (findings.length >= 4) break;

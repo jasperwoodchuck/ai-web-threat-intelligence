@@ -193,11 +193,17 @@ def _make_match(
 
 
 def _brand_parts(known_domains: Iterable[str]) -> list[tuple[str, str, str]]:
-    brands = []
+    brands: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
     for domain in known_domains:
         label, suffix = _label_and_suffix(domain)
         if label and suffix:
-            brands.append((label, suffix, domain.lower().rstrip(".")))
+            # A catalog entry such as teams.microsoft.com resolves to its
+            # canonical registrable reference microsoft.com.
+            brand = (label, suffix, f"{label}.{suffix}")
+            if brand not in seen:
+                seen.add(brand)
+                brands.append(brand)
     return brands
 
 

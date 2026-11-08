@@ -98,6 +98,7 @@ export interface PhishingAnalysis {
   score: number;
   indicators: PhishingIndicator[];
   fraudurl: FraudUrlSignal;
+  typosquatting?: TyposquattingAnalysis | null;
 }
 export interface TyposquattingAnalysis {
   type: "typosquatting";

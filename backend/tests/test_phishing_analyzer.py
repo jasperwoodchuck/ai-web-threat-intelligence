@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.analyzers.phishing import FraudUrlAdapter, PhishingAnalyzer
+from app.analyzers.known_domains import LEGITIMATE_DOMAIN_CATALOG
 from app.analyzers.typosquatting import detect_lookalike_domain
 from app.analyzers.url import UrlAnalyzer
 from app.models.phishing import FraudUrlSignal
@@ -92,6 +93,13 @@ def test_yovtube_identifies_youtube_as_possible_intended_site() -> None:
     assert "edit_distance=1" in indicator.evidence
     assert result.typosquatting.technique == "character_substitution"
     assert result.typosquatting.reference_domain == "youtube.com"
+
+
+def test_expanded_catalog_supports_lookalikes_for_major_services() -> None:
+    assert len({domain for domains in LEGITIMATE_DOMAIN_CATALOG.values() for domain in domains}) > 100
+    result = analyze("https://githb.com")
+    assert result.typosquatting.detected is True
+    assert result.typosquatting.reference_domain == "github.com"
 
 
 def test_missing_character_lookalikes_are_detected() -> None:

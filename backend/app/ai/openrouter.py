@@ -13,6 +13,7 @@ from app.ai.base import AIProvider
 from app.models.message import AIExplanation
 
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_REQUEST_TIMEOUT_SECONDS = 45.0
 logger = logging.getLogger(__name__)
 
 INTERPRETATION_PROPERTIES = {
@@ -177,7 +178,12 @@ class ModelResponseError(RuntimeError):
 
 
 class OpenRouterProvider(AIProvider):
-    def __init__(self, api_key: str | None = None, model: str | None = None, timeout: float = 12.0) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout: float = OPENROUTER_REQUEST_TIMEOUT_SECONDS,
+    ) -> None:
         self.api_key = api_key if api_key is not None else os.getenv("OPENROUTER_API_KEY")
         self.model = model if model is not None else os.getenv("OPENROUTER_MODEL")
         self.timeout = timeout
@@ -229,7 +235,32 @@ class OpenRouterProvider(AIProvider):
                 status="unavailable",
                 limitations=[f"OpenRouter returned HTTP {exc.code}; deterministic analysis is preserved."],
             )
-        except (URLError, TimeoutError, OSError) as exc:
+        except TimeoutError:
+            logger.warning(
+                "OpenRouter request timed out operation=interpretation timeout_seconds=%s",
+                self.timeout,
+            )
+            return AIExplanation(
+                status="unavailable",
+                limitations=[
+                    f"OpenRouter did not respond within {self.timeout:g} seconds; deterministic analysis is preserved."
+                ],
+            )
+        except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                logger.warning(
+                    "OpenRouter request timed out operation=interpretation timeout_seconds=%s",
+                    self.timeout,
+                )
+                return AIExplanation(
+                    status="unavailable",
+                    limitations=[
+                        f"OpenRouter did not respond within {self.timeout:g} seconds; deterministic analysis is preserved."
+                    ],
+                )
+            logger.warning("OpenRouter request failed operation=interpretation error_type=%s", type(exc).__name__)
+            return AIExplanation(status="unavailable", limitations=["OpenRouter could not be reached; deterministic analysis is preserved."])
+        except OSError as exc:
             logger.warning("OpenRouter request failed operation=interpretation error_type=%s", type(exc).__name__)
             return AIExplanation(status="unavailable", limitations=["OpenRouter could not be reached; deterministic analysis is preserved."])
         except ModelResponseError as exc:

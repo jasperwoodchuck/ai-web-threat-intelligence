@@ -9,7 +9,8 @@ import type {
   WebsiteAvailability,
 } from "../types/investigation";
 
-const ANALYSIS_TIMEOUT_MS = 30_000;
+// Allow the backend's bounded OpenRouter request and response processing to finish.
+const ANALYSIS_TIMEOUT_MS = 60_000;
 
 class AnalysisClientError extends Error {
   constructor(message: string) {

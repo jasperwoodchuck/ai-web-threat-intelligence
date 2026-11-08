@@ -14,6 +14,10 @@ import { DetailPanel, EvidenceList, KeyValueGrid, ValueList } from "./ResultPrim
 import { AnalysisDetailModal, type AnalysisCardDetail } from "./AnalysisDetailModal";
 import { ReportExportActions } from "./ReportExportActions";
 import type { AnalysisApiResult } from "../../lib/reportExport";
+import {
+  getTyposquattingDetection,
+  TyposquattingDetectionCard,
+} from "./TyposquattingDetectionCard";
 
 const MIN_CLASSIFICATION_CONFIDENCE = 0.6;
 
@@ -501,6 +505,7 @@ function Summary({ result, source }: { result: NormalizedAnalysisResult; source:
   const openRiskDetails = () =>
     openDetail({ title: "Risk assessment", status: result.risk.classification, data: result.risk });
   const riskTone = toneForRisk(result.risk.classification);
+  const typosquatting = getTyposquattingDetection(source);
   return (
     <>
       <div className="report-heading">
@@ -569,6 +574,7 @@ function Summary({ result, source }: { result: NormalizedAnalysisResult; source:
           </div>
         </div>
       </section>
+      {typosquatting && <TyposquattingDetectionCard detection={typosquatting} />}
       <AiOverviewCard overview={result.aiOverview} />
       <section className="summary-findings">
         <div className="summary-section-heading">
