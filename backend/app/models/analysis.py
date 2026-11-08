@@ -10,6 +10,7 @@ from app.threat_intel.base import ThreatIntelResult
 
 
 class UrlAnalysisResponse(BaseModel):
+    availability: "WebsiteAvailability"
     url_analysis: UrlAnalysisResult
     dns_analysis: DnsAnalysisResult
     phishing_analysis: PhishingAnalysisResult
@@ -18,3 +19,15 @@ class UrlAnalysisResponse(BaseModel):
     http_analysis: HttpAnalysisResult
     threat_intelligence: ThreatIntelResult
     risk_assessment: RiskAssessment
+
+
+class WebsiteAvailability(BaseModel):
+    status: str
+    message: str
+    details: str
+    domain: str
+    http_status: int | None = None
+
+
+class UrlAvailabilityResponse(BaseModel):
+    availability: WebsiteAvailability
